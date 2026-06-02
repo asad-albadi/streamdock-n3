@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-06-02 — GUI
+
+### Added
+
+- Added `streamdock-n3-gui.py`, a native GTK4 desktop utility for editing the controller config.
+  - Status tab: USB device detection via sysfs (no `lsusb` dependency), systemd user service install/start/restart/stop, brightness slider.
+  - Keys tab: per-LCD-key card with square preview, segmented Label / Image mode toggle, color picker, and a "Pick app…" button that scans installed `.desktop` files and assigns the chosen app's icon and `Exec` command in one step.
+  - Actions tab: editors for the three round buttons and the three knobs (left, right, press).
+  - Toast notifications for save, reload, and service actions.
+  - File diagnostics written to `/tmp/streamdock-n3-gui.log`.
+- Added `streamdock-n3-gui.desktop` so the utility appears in Walker and other app launchers.
+- Theming: the GUI parses `~/.config/omarchy/current/theme/colors.toml` and rebuilds its CSS from the active Omarchy palette, watching the file with `Gio.FileMonitor` so theme switches re-style the app live.
+- Application icons selected through "Pick app…" are rasterised to 144×144 PNGs cached under `~/.cache/streamdock-n3-linux/icons/`, so the controller's PIL pipeline works with apps that ship SVG icons.
+- Added `--tab N` CLI flag to launch the GUI on a specific tab (used for screenshots).
+- Added `docs/` with screenshots of the Status, Keys, and Actions tabs.
+
+### Changed
+
+- README now documents the GUI alongside the CLI controller and embeds the screenshots.
+
 ## 2026-06-02
 
 ### Added

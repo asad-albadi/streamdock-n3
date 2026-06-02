@@ -12,14 +12,17 @@ The official StreamDock Device SDK supports Linux and N3, but the Python package
 ## Project Files
 
 ```text
-streamdock-n3-linux.py        Main config-driven Linux controller.
-streamdock-n3-linux.config.json     Labels, colors, and action commands.
-streamdock-n3-probe.py        Simple SDK probe for device, LCD keys, and SDK events.
-streamdock-n3-debug.py  Raw hidraw + evdev diagnostic tool.
-99-streamdock.rules        udev permissions for hidraw and input event nodes.
-install_udev.sh            Installs and reloads the udev rule.
-streamdock-n3-linux.service   systemd user service template.
-vendor/StreamDock/         Vendored official Python SDK source and native transport.
+streamdock-n3-linux.py             Main config-driven Linux controller.
+streamdock-n3-linux.config.json    Labels, colors, and action commands.
+streamdock-n3-gui.py               Native GTK4 GUI for editing the config.
+streamdock-n3-gui.desktop          Desktop entry so the GUI shows in Walker.
+streamdock-n3-probe.py             Simple SDK probe for device, LCD keys, and SDK events.
+streamdock-n3-debug.py             Raw hidraw + evdev diagnostic tool.
+99-streamdock.rules                udev permissions for hidraw and input event nodes.
+install_udev.sh                    Installs and reloads the udev rule.
+streamdock-n3-linux.service        systemd user service template.
+vendor/StreamDock/                 Vendored official Python SDK source and native transport.
+docs/                              Screenshots used in this README.
 ```
 
 ## Requirements
@@ -73,6 +76,40 @@ Useful flags:
 --no-init           Skip SDK initialization.
 --seconds N         Exit after N seconds; useful for tests.
 ```
+
+## GUI
+
+`streamdock-n3-gui.py` is a single-window GTK4 utility for editing the controller config without touching JSON. It styles itself from the active Omarchy theme by parsing `~/.config/omarchy/current/theme/colors.toml` and re-applies CSS live when the theme changes.
+
+| Status | Keys | Actions |
+|---|---|---|
+| ![Status tab](docs/screenshot-status.png) | ![Keys tab](docs/screenshot-keys.png) | ![Actions tab](docs/screenshot-actions.png) |
+
+Run it directly:
+
+```bash
+python3 streamdock-n3-gui.py
+```
+
+Or install the desktop entry so it shows in Walker / app launchers:
+
+```bash
+cp streamdock-n3-gui.desktop ~/.local/share/applications/
+update-desktop-database ~/.local/share/applications 2>/dev/null || true
+```
+
+What it does:
+
+- **Status tab** detects the dock via `/sys/bus/usb/devices` (no `lsusb` needed), installs the systemd user service on demand, and exposes Start / Restart / Stop plus a brightness slider.
+- **Keys tab** has one card per LCD key. Each key is either:
+  - **Label** mode — text + background color used to generate the LCD icon.
+  - **Image** mode — a path to a custom image (center-cropped to square).
+  - Or click **Pick app…** to choose any installed `.desktop` application; the GUI rasterises its icon to `~/.cache/streamdock-n3-linux/icons/` and fills the press command from the app's `Exec` line.
+- **Actions tab** edits the three round-button and three-knob (left / right / press) command mappings.
+
+Save writes back to `streamdock-n3-linux.config.json` and, if the service is active, restarts it. Logs go to `/tmp/streamdock-n3-gui.log`.
+
+`--tab N` (0, 1, 2) opens the window directly on Status / Keys / Actions.
 
 ## Configuration
 

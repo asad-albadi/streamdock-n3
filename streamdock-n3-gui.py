@@ -549,8 +549,9 @@ class AppPickerDialog(Gtk.Window):
 
 
 class StreamDockWindow(Gtk.ApplicationWindow):
-    def __init__(self, app: Gtk.Application) -> None:
+    def __init__(self, app: Gtk.Application, initial_tab: int = 0) -> None:
         super().__init__(application=app, title="Stream Dock N3")
+        self._initial_tab = initial_tab
         self.set_default_size(680, 780)
         self.config: dict[str, Any] = load_config()
         self._dirty = False
@@ -590,6 +591,8 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         notebook.append_page(self._build_status_page(), Gtk.Label(label="Status"))
         notebook.append_page(self._build_keys_page(), Gtk.Label(label="Keys"))
         notebook.append_page(self._build_actions_page(), Gtk.Label(label="Actions"))
+        if 0 <= self._initial_tab < notebook.get_n_pages():
+            notebook.set_current_page(self._initial_tab)
 
         self.toast_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -1155,16 +1158,17 @@ class ThemeLoader:
 
 
 class StreamDockApp(Gtk.Application):
-    def __init__(self) -> None:
+    def __init__(self, initial_tab: int = 0) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.theme: ThemeLoader | None = None
+        self.initial_tab = initial_tab
 
     def do_startup(self) -> None:  # type: ignore[override]
         Gtk.Application.do_startup(self)
         self.theme = ThemeLoader()
 
     def do_activate(self) -> None:  # type: ignore[override]
-        win = self.props.active_window or StreamDockWindow(self)
+        win = self.props.active_window or StreamDockWindow(self, self.initial_tab)
         win.present()
 
 
@@ -1180,8 +1184,18 @@ def main() -> int:
         log.error("config not found: %s", CONFIG_PATH)
         print(f"config not found: {CONFIG_PATH}", file=sys.stderr)
         return 1
+    initial_tab = 0
+    argv = list(sys.argv)
+    if "--tab" in argv:
+        idx = argv.index("--tab")
+        if idx + 1 < len(argv):
+            try:
+                initial_tab = int(argv[idx + 1])
+            except ValueError:
+                pass
+            del argv[idx:idx + 2]
     try:
-        return StreamDockApp().run(sys.argv)
+        return StreamDockApp(initial_tab).run(argv)
     except Exception:
         log.exception("app run failed")
         raise
