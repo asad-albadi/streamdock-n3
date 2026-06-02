@@ -1,9 +1,97 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
 [project]
 name = "streamdock-n3-linux"
-version = "0.1.0"
+version = "0.2.0"
+description = "Linux controller and GTK4 GUI for the FHOOU/Mirabox Stream Dock N3."
+readme = "README.md"
 requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Asad Al Badi", email = "asad.badi@vodafone.om" },
+]
+keywords = ["streamdock", "n3", "mirabox", "fhoou", "linux", "hid", "gtk4"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Hardware :: Hardware Drivers",
+]
 dependencies = [
     "evdev>=1.9.3",
-    "pillow",
-    "pyudev",
+    "pillow>=10",
+    "pyudev>=0.24",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/asad-albadi/streamdock-n3"
+Repository = "https://github.com/asad-albadi/streamdock-n3"
+Issues = "https://github.com/asad-albadi/streamdock-n3/issues"
+Changelog = "https://github.com/asad-albadi/streamdock-n3/blob/master/CHANGELOG.md"
+
+[project.scripts]
+streamdock-n3 = "streamdock_n3.daemon:main"
+streamdock-n3-gui = "streamdock_n3.gui:main"
+streamdock-n3-debug = "streamdock_n3.debug_tool:main"
+streamdock-n3-probe = "streamdock_n3.probe:main"
+streamdock-n3-install = "streamdock_n3.system_install:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/streamdock_n3"]
+# _data and _vendor live inside the package and are picked up automatically.
+# Re-include the .dll/.so transports that hatchling otherwise filters.
+artifacts = [
+    "src/streamdock_n3/_vendor/StreamDock/Transport/TransportDLL/*.dll",
+    "src/streamdock_n3/_vendor/StreamDock/Transport/TransportDLL/*.lib",
+    "src/streamdock_n3/_vendor/StreamDock/Transport/TransportDLL/*.so",
+    "src/streamdock_n3/_vendor/StreamDock/Transport/TransportDLL/*.dylib",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/streamdock_n3",
+    "tests",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "Makefile",
+    "install.sh",
+    "pyproject.toml",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["src/streamdock_n3/_vendor"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",   # handled by formatter
+    "B008",   # GTK callbacks legitimately use mutable defaults in places
+]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+exclude = ["src/streamdock_n3/_vendor/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

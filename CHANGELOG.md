@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased — packaging
+
+### Added
+
+- Restructured the project as a proper Python package under `src/streamdock_n3/` with a `hatchling` build backend.
+- Console entry points: `streamdock-n3`, `streamdock-n3-gui`, `streamdock-n3-probe`, `streamdock-n3-debug`, `streamdock-n3-install`.
+- `streamdock-n3-install`: idempotent installer for the udev rule, systemd user unit, and desktop entry. Templates `@BIN@` based on the actual installed binary location.
+- XDG-compliant runtime layout: config at `$XDG_CONFIG_HOME/streamdock-n3/config.json`, icon cache at `$XDG_CACHE_HOME/streamdock-n3/`, GUI log at `$XDG_STATE_HOME/streamdock-n3/gui.log`. Config is seeded with a default on first run.
+- `install.sh`: one-shot end-user installer that fetches the latest GitHub Release wheel and runs `pipx install` + `sudo streamdock-n3-install`.
+- `Makefile`: distro-packager-friendly `install` / `install-data` / `uninstall` targets honouring `DESTDIR` and `PREFIX`.
+- GitHub Actions: `ci.yml` (ruff, mypy, pytest, build smoke) and `release.yml` (tag-triggered wheel + sdist + SHA256SUMS published to a GitHub Release).
+- Unit tests under `tests/` covering events, icons, config IO, and Exec-code stripping.
+- `LICENSE` (MIT).
+
+### Changed
+
+- Daemon, GUI, probe, and debug-tool scripts were converted to package modules with `main()` entry points; old hyphenated `.py` scripts at the repo root no longer exist.
+- GUI's "Install service" button now calls `pkexec streamdock-n3-install` instead of copying a service file out of the project directory.
+- Service unit description tightened, hard-coded `WorkingDirectory` removed, `ExecStart` switched to the installed binary.
+- Desktop entry `Exec=` switched to the installed `streamdock-n3-gui` binary.
+- GTK `application_id` changed to `io.github.asad_albadi.StreamDockN3` (was Vodafone-internal).
+- `streamdock-n3-linux.config.json` at the repo root is no longer a runtime file; see `_data/config.default.json` for the seeded defaults.
+
+### Removed
+
+- `install_udev.sh` (replaced by `streamdock-n3-install`).
+- Top-level hyphenated `.py` scripts (`streamdock-n3-linux.py`, etc.) — replaced by package modules + entry points.
+
 ## 2026-06-02 — GUI
 
 ### Added

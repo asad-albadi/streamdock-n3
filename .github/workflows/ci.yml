@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test-build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system libs for evdev / Pillow
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libevdev-dev libudev-dev libjpeg-dev zlib1g-dev
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: Ruff
+        run: uv run ruff check .
+
+      - name: Mypy
+        run: uv run mypy src/streamdock_n3 || true   # advisory until baseline is clean
+
+      - name: Pytest
+        run: uv run pytest
+
+      - name: Build wheel + sdist (smoke)
+        run: uv build

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import json
+import contextlib
 import logging
 import os
 import shutil
@@ -13,7 +13,11 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-LOG_PATH = Path("/tmp/streamdock-n3-gui.log")
+from streamdock_n3 import config as configmod
+from streamdock_n3 import paths
+
+paths.ensure_runtime_dirs()
+LOG_PATH = paths.gui_log_file()
 logging.basicConfig(
     filename=str(LOG_PATH),
     filemode="w",
@@ -30,20 +34,16 @@ def _excepthook(exc_type, exc, tb):
 
 sys.excepthook = _excepthook
 
-import gi
+import gi  # noqa: E402
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, GLib, Gio, Gtk  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-
-ROOT = Path(__file__).resolve().parent
-CONFIG_PATH = ROOT / "streamdock-n3-linux.config.json"
-SERVICE = "streamdock-n3-linux.service"
-SERVICE_SRC = ROOT / SERVICE
-SERVICE_DST_DIR = Path.home() / ".config/systemd/user"
-SERVICE_DST = SERVICE_DST_DIR / SERVICE
-APP_ID = "om.vodafone.streamdock.N3"
+SERVICE = "streamdock-n3.service"
+SERVICE_SYSTEM_PATH = Path("/usr/lib/systemd/user") / SERVICE
+SERVICE_USER_PATH = Path.home() / ".config/systemd/user" / SERVICE
+APP_ID = "io.github.asad_albadi.StreamDockN3"
 VID = "6603"
 PID = "1003"
 
@@ -55,7 +55,7 @@ KNOBS = [1, 2, 3]
 KNOB_LABELS = {1: "Small knob 1", 2: "Small knob 2", 3: "Large knob"}
 ROUND_LABELS = {7: "Round button 1", 8: "Round button 2", 9: "Round button 3"}
 
-ICON_CACHE_DIR = Path.home() / ".cache/streamdock-n3-linux/icons"
+ICON_CACHE_DIR = paths.icon_cache_dir()
 ICON_RENDER_SIZE = 144  # px, captured PNG side
 
 DEFAULT_PALETTE = {
@@ -67,22 +67,6 @@ DEFAULT_PALETTE = {
     "color2": "#a6e3a1",
     "color8": "#585b70",
 }
-
-
-# ----- config IO ----------------------------------------------------------
-
-
-def load_config() -> dict[str, Any]:
-    with CONFIG_PATH.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
-
-
-def save_config(data: dict[str, Any]) -> None:
-    tmp = CONFIG_PATH.with_suffix(".json.tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-    os.replace(tmp, CONFIG_PATH)
 
 
 # ----- system probes ------------------------------------------------------
@@ -115,17 +99,17 @@ def service_active() -> bool:
 
 
 def device_present() -> bool:
-    """Scan /sys/bus/usb/devices for VID:PID — no lsusb dependency."""
     try:
         for dev in Path("/sys/bus/usb/devices").glob("*"):
             vid_f = dev / "idVendor"
             pid_f = dev / "idProduct"
-            if vid_f.exists() and pid_f.exists():
-                if (
-                    vid_f.read_text().strip().lower() == VID.lower()
-                    and pid_f.read_text().strip().lower() == PID.lower()
-                ):
-                    return True
+            if (
+                vid_f.exists()
+                and pid_f.exists()
+                and vid_f.read_text().strip().lower() == VID.lower()
+                and pid_f.read_text().strip().lower() == PID.lower()
+            ):
+                return True
         return False
     except Exception:  # noqa: BLE001
         log.exception("device_present failed")
@@ -133,7 +117,29 @@ def device_present() -> bool:
 
 
 def service_installed() -> bool:
-    return SERVICE_DST.exists()
+    return SERVICE_SYSTEM_PATH.exists() or SERVICE_USER_PATH.exists()
+
+
+def install_service_via_pkexec() -> tuple[bool, str]:
+    """Run `pkexec streamdock-n3-install` to install udev/service/desktop system-wide."""
+    bin_path = shutil.which("streamdock-n3-install")
+    if not bin_path:
+        return False, "streamdock-n3-install not found on PATH"
+    try:
+        r = subprocess.run(
+            ["pkexec", bin_path],
+            capture_output=True, text=True, timeout=60,
+        )
+        log.info("pkexec install rc=%s out=%r", r.returncode, r.stdout + r.stderr)
+        # Refresh systemd's view of unit files.
+        subprocess.run(
+            ["systemctl", "--user", "daemon-reload"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return r.returncode == 0, (r.stdout + r.stderr).strip() or "installed"
+    except Exception as exc:  # noqa: BLE001
+        log.exception("pkexec install failed")
+        return False, str(exc)
 
 
 def list_installed_apps() -> list[Gio.AppInfo]:
@@ -152,16 +158,14 @@ def strip_exec_codes(cmd: str) -> str:
             nxt = cmd[i + 1]
             if nxt == "%":
                 out.append("%")
-            # any other %x is dropped silently
             i += 2
             continue
         out.append(ch)
         i += 1
-    return " ".join("".join(out).split())  # collapse whitespace
+    return " ".join("".join(out).split())
 
 
 def icon_path_for_app(app: Gio.AppInfo, size: int = ICON_RENDER_SIZE) -> str | None:
-    """Return a resolvable file path for the app's icon, rasterising SVG to PNG."""
     icon = app.get_icon()
     if icon is None:
         return None
@@ -203,23 +207,7 @@ def icon_path_for_app(app: Gio.AppInfo, size: int = ICON_RENDER_SIZE) -> str | N
         return str(out_path)
     except Exception:  # noqa: BLE001
         log.exception("icon rasterize failed for %s", source_path)
-        # last resort: hand back original even if SVG — PIL may not load it
         return source_path
-
-
-def install_service() -> tuple[bool, str]:
-    try:
-        SERVICE_DST_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(SERVICE_SRC, SERVICE_DST)
-        r = subprocess.run(
-            ["systemctl", "--user", "daemon-reload"],
-            capture_output=True, text=True, timeout=10,
-        )
-        log.info("install_service: copied + daemon-reload rc=%s", r.returncode)
-        return r.returncode == 0, (r.stdout + r.stderr).strip() or "installed"
-    except Exception as exc:  # noqa: BLE001
-        log.exception("install_service failed")
-        return False, str(exc)
 
 
 # ----- theme palette ------------------------------------------------------
@@ -508,7 +496,7 @@ class AppPickerDialog(Gtk.Window):
         name = Gtk.Label(label=app.get_display_name() or "(unnamed)", xalign=0)
         cmd = Gtk.Label(label=app.get_commandline() or "", xalign=0)
         cmd.add_css_class("dim")
-        cmd.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
+        cmd.set_ellipsize(3)
         text_box.append(name)
         text_box.append(cmd)
         box.append(text_box)
@@ -553,11 +541,10 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title="Stream Dock N3")
         self._initial_tab = initial_tab
         self.set_default_size(680, 780)
-        self.config: dict[str, Any] = load_config()
+        self.config: dict[str, Any] = configmod.load()
         self._dirty = False
         self._toasts: list[Gtk.Revealer] = []
 
-        # header
         header = Gtk.HeaderBar()
         header.set_show_title_buttons(True)
         title = Gtk.Label(label="Stream Dock N3")
@@ -576,7 +563,6 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         header.pack_end(self.save_btn)
         self.set_titlebar(header)
 
-        # overlay holds toasts on top
         overlay = Gtk.Overlay()
         self.overlay = overlay
         self.set_child(overlay)
@@ -710,7 +696,6 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         header.append(pill)
         header.append(Gtk.Label(hexpand=True))
 
-        # Segmented mode toggle
         mode_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         mode_box.add_css_class("linked")
         label_toggle = Gtk.ToggleButton(label="Label")
@@ -726,7 +711,6 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         header.append(pick_app_btn)
         inner.append(header)
 
-        # Body: preview on left, fields on right
         body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
         preview_frame = Gtk.AspectFrame(ratio=1.0, obey_child=False)
@@ -744,7 +728,6 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         label_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         label_stack.set_transition_duration(120)
 
-        # --- label/color mode ---
         label_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         label_entry = Gtk.Entry()
         label_entry.set_text(str(key_cfg.get("label", "")))
@@ -757,7 +740,6 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         label_page.append(field_row("Color", color_box))
         label_stack.add_named(label_page, "label")
 
-        # --- image mode ---
         image_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         path_entry = Gtk.Entry()
         path_entry.set_text(str(key_cfg.get("icon", "")))
@@ -778,7 +760,6 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
         fields.append(label_stack)
 
-        # action stays in both modes
         action_entry = Gtk.Entry()
         action_entry.set_text(self._action_str(f"button.{k}.press"))
         action_entry.connect("changed", self.on_action_changed, f"button.{k}.press")
@@ -799,7 +780,6 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         }
         self.key_widgets[k] = widgets
 
-        # wire up
         label_entry.connect("changed", self._on_key_label_changed, k)
         color_btn.connect("color-set", self._on_key_color_set, k)
         choose_btn.connect("clicked", self._on_pick_image, k)
@@ -838,7 +818,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             try:
                 from gi.repository import GdkPixbuf
                 pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    icon_path, size, size, False  # crop (not preserve) for square
+                    icon_path, size, size, False
                 )
                 Gdk.cairo_set_source_pixbuf(cr, pb, ox, oy)
                 cr.rectangle(ox, oy, size, size)
@@ -847,7 +827,6 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             except Exception:  # noqa: BLE001
                 log.exception("preview load failed for %s", icon_path)
 
-        # label+color fallback
         rgba = parse_hex(cfg.get("color", "#1c63b8"))
         cr.set_source_rgb(rgba.red, rgba.green, rgba.blue)
         cr.rectangle(ox, oy, size, size)
@@ -882,9 +861,6 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         if mode == "label":
             cfg.pop("icon", None)
             w["path"].set_text("")
-        else:
-            # image mode requires an icon; if none chosen yet, just switch view
-            pass
         w["stack"].set_visible_child_name(mode)
         w["preview"].queue_draw()
         self._mark_dirty()
@@ -1069,7 +1045,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
     def on_save(self, _btn: Gtk.Button) -> None:
         log.info("save clicked")
         try:
-            save_config(self.config)
+            configmod.save(self.config)
         except Exception as exc:  # noqa: BLE001
             log.exception("save_config failed")
             self.toast(f"Save failed: {exc}")
@@ -1084,7 +1060,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
     def on_reload(self, _btn: Gtk.Button) -> None:
         try:
-            self.config = load_config()
+            self.config = configmod.load()
         except Exception as exc:  # noqa: BLE001
             self.toast(f"Reload failed: {exc}")
             return
@@ -1105,10 +1081,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
     def on_install_service(self, _btn: Gtk.Button) -> None:
         log.info("install service clicked")
-        if not SERVICE_SRC.exists():
-            self.toast(f"Service template missing: {SERVICE_SRC}")
-            return
-        ok, msg = install_service()
+        ok, msg = install_service_via_pkexec()
         self.toast("Service installed" if ok else f"Install failed: {msg}")
         self._refresh_status()
 
@@ -1118,7 +1091,9 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             self.toast("systemctl not found")
             return
         ok, msg = systemctl(action)
-        self.toast(f"{action}: {'ok' if ok else 'failed — see /tmp/streamdock-n3-gui.log'}")
+        self.toast(
+            f"{action}: ok" if ok else f"{action}: failed — see {LOG_PATH}"
+        )
         if not ok:
             log.warning("service %s failed: %s", action, msg)
         self._refresh_status()
@@ -1172,30 +1147,25 @@ class StreamDockApp(Gtk.Application):
         win.present()
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     log.info("=== startup ===")
     log.info("argv=%s", sys.argv)
     log.info("python=%s", sys.executable)
     log.info("cwd=%s", os.getcwd())
-    log.info("CONFIG_PATH=%s exists=%s", CONFIG_PATH, CONFIG_PATH.exists())
-    log.info("DISPLAY=%s WAYLAND_DISPLAY=%s", os.environ.get("DISPLAY"), os.environ.get("WAYLAND_DISPLAY"))
-    log.info("PATH=%s", os.environ.get("PATH"))
-    if not CONFIG_PATH.exists():
-        log.error("config not found: %s", CONFIG_PATH)
-        print(f"config not found: {CONFIG_PATH}", file=sys.stderr)
-        return 1
+    log.info("config=%s", paths.config_file())
+    log.info("DISPLAY=%s WAYLAND_DISPLAY=%s",
+             os.environ.get("DISPLAY"), os.environ.get("WAYLAND_DISPLAY"))
+
     initial_tab = 0
-    argv = list(sys.argv)
-    if "--tab" in argv:
-        idx = argv.index("--tab")
-        if idx + 1 < len(argv):
-            try:
-                initial_tab = int(argv[idx + 1])
-            except ValueError:
-                pass
-            del argv[idx:idx + 2]
+    argv_list = list(argv if argv is not None else sys.argv)
+    if "--tab" in argv_list:
+        idx = argv_list.index("--tab")
+        if idx + 1 < len(argv_list):
+            with contextlib.suppress(ValueError):
+                initial_tab = int(argv_list[idx + 1])
+            del argv_list[idx:idx + 2]
     try:
-        return StreamDockApp(initial_tab).run(argv)
+        return StreamDockApp(initial_tab).run(argv_list)
     except Exception:
         log.exception("app run failed")
         raise

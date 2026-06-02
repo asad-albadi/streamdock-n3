@@ -1,0 +1,12 @@
+[Unit]
+Description=Stream Dock N3 controller
+After=graphical-session.target pipewire.service
+
+[Service]
+Type=simple
+ExecStart=@BIN@/streamdock-n3
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

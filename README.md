@@ -1,75 +1,78 @@
 # streamdock-n3-linux
 
-Linux controller and diagnostics for the FHOOU/Mirabox Stream Dock N3.
+Linux controller and GTK4 GUI for the FHOOU/Mirabox Stream Dock N3.
 
-The connected N3 identifies as USB `6603:1003` with product string `HOTSPOTEKUSB HID DEMO`. It exposes two useful Linux interfaces:
+The N3 identifies as USB `6603:1003` with product string `HOTSPOTEKUSB HID DEMO`. It exposes:
 
-- `/dev/hidraw*`: vendor HID interface used by the official SDK for LCD images, brightness, and most button reports.
-- `/dev/input/event*`: keyboard-style input interface used by some firmware modes for standard key/media events, including knob events on this setup.
+- `/dev/hidraw*` — vendor HID interface used by the official SDK for LCD images, brightness, and most button reports.
+- `/dev/input/event*` — keyboard-style input interface used by some firmware modes for standard key/media events, including knob events on this setup.
 
-The official StreamDock Device SDK supports Linux and N3, but the Python package install path did not include the native transport library here. For that reason the SDK source is vendored under `vendor/StreamDock`.
+The official StreamDock Device SDK is vendored under `src/streamdock_n3/_vendor/StreamDock/` because the pip-installable package did not ship the Linux native transport in this environment.
 
-## Project Files
+## Install
 
-```text
-streamdock-n3-linux.py             Main config-driven Linux controller.
-streamdock-n3-linux.config.json    Labels, colors, and action commands.
-streamdock-n3-gui.py               Native GTK4 GUI for editing the config.
-streamdock-n3-gui.desktop          Desktop entry so the GUI shows in Walker.
-streamdock-n3-probe.py             Simple SDK probe for device, LCD keys, and SDK events.
-streamdock-n3-debug.py             Raw hidraw + evdev diagnostic tool.
-99-streamdock.rules                udev permissions for hidraw and input event nodes.
-install_udev.sh                    Installs and reloads the udev rule.
-streamdock-n3-linux.service        systemd user service template.
-vendor/StreamDock/                 Vendored official Python SDK source and native transport.
-docs/                              Screenshots used in this README.
-```
-
-## Requirements
-
-- Linux with the Stream Dock N3 connected over USB.
-- `uv` for Python environment management.
-- Python dependencies from `pyproject.toml`: `pillow`, `pyudev`, `evdev`.
-- Optional command-line tools used by the default config: `alacritty`, `chromium`, `xdg-open`, `obs`, `hyprctl`, `wpctl`, `playerctl`.
-
-## Setup
-
-Install device permissions:
+### One-shot (recommended)
 
 ```bash
-cd /home/asad/Documents/projects/streamdock-n3-linux
-./install_udev.sh
+curl -fsSL https://raw.githubusercontent.com/asad-albadi/streamdock-n3/master/install.sh | bash
 ```
 
-Then unplug and replug the Stream Dock.
+The script downloads the latest release wheel, installs it via `pipx` (or `pip --user` as a fallback), then runs `sudo streamdock-n3-install` to drop the udev rule, systemd user service, and desktop entry.
 
-The udev rule grants user access to both Stream Dock HID paths:
-
-```text
-/dev/hidraw*
-/dev/input/event*
-```
-
-This matters because the screen/buttons and knob/media-style events may arrive through different Linux interfaces.
-
-## Run The Controller
-
-Start the controller:
+To pin a version or skip the system step:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-linux.py
+curl -fsSL https://raw.githubusercontent.com/asad-albadi/streamdock-n3/master/install.sh \
+    | bash -s -- --version v0.2.0
+curl -fsSL https://raw.githubusercontent.com/asad-albadi/streamdock-n3/master/install.sh \
+    | bash -s -- --no-system
 ```
 
-Test without executing commands:
+### Manual
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-linux.py --dry-run
+pipx install streamdock-n3-linux        # once PyPI publishing is enabled
+sudo streamdock-n3-install              # udev rule + systemd unit + desktop entry
+systemctl --user daemon-reload
+systemctl --user enable --now streamdock-n3.service
 ```
 
-Useful flags:
+Then unplug and replug the Stream Dock so udev rules apply.
+
+### From source
+
+```bash
+git clone https://github.com/asad-albadi/streamdock-n3
+cd streamdock-n3
+pipx install --force .
+sudo streamdock-n3-install
+```
+
+Or for distro packaging:
+
+```bash
+make build
+make DESTDIR=$pkgdir install
+```
+
+## Commands
+
+After install you have five entry points on your PATH:
 
 ```text
---config PATH       Use a different JSON config.
+streamdock-n3          Daemon. Reads ~/.config/streamdock-n3/config.json,
+                       applies LCD icons + brightness, dispatches events.
+streamdock-n3-gui      GTK4 GUI for editing the config.
+streamdock-n3-probe    SDK smoke test (enumerate, set test icons, print events).
+streamdock-n3-debug    Raw hidraw + evdev diagnostics.
+streamdock-n3-install  Install udev rule, systemd user unit, desktop entry
+                       (run with sudo).
+```
+
+`streamdock-n3` flags:
+
+```text
+--config PATH       Override config path (default: $XDG_CONFIG_HOME/streamdock-n3/config.json).
 --brightness N      Override configured brightness, 0-100.
 --dry-run           Print actions without running commands.
 --no-icons          Do not update LCD key images.
@@ -79,59 +82,35 @@ Useful flags:
 
 ## GUI
 
-`streamdock-n3-gui.py` is a single-window GTK4 utility for editing the controller config without touching JSON. It styles itself from the active Omarchy theme by parsing `~/.config/omarchy/current/theme/colors.toml` and re-applies CSS live when the theme changes.
-
 | Status | Keys | Actions |
 |---|---|---|
 | ![Status tab](docs/screenshot-status.png) | ![Keys tab](docs/screenshot-keys.png) | ![Actions tab](docs/screenshot-actions.png) |
 
-Run it directly:
+- **Status** detects the dock via `/sys/bus/usb/devices`, exposes Start / Restart / Stop, brightness slider, and an Install button that runs `pkexec streamdock-n3-install`.
+- **Keys** has one card per LCD key. Each key is either **Label** mode (text + background color) or **Image** mode (custom image path, center-cropped to square). **Pick app…** scans `.desktop` files and assigns the chosen app's icon + `Exec` command in one step.
+- **Actions** edits the three round-button and three-knob (left / right / press) command mappings.
 
-```bash
-python3 streamdock-n3-gui.py
-```
+The GUI re-styles itself from `~/.config/omarchy/current/theme/colors.toml` and watches it with `Gio.FileMonitor` so theme switches apply live.
 
-Or install the desktop entry so it shows in Walker / app launchers:
-
-```bash
-cp streamdock-n3-gui.desktop ~/.local/share/applications/
-update-desktop-database ~/.local/share/applications 2>/dev/null || true
-```
-
-What it does:
-
-- **Status tab** detects the dock via `/sys/bus/usb/devices` (no `lsusb` needed), installs the systemd user service on demand, and exposes Start / Restart / Stop plus a brightness slider.
-- **Keys tab** has one card per LCD key. Each key is either:
-  - **Label** mode — text + background color used to generate the LCD icon.
-  - **Image** mode — a path to a custom image (center-cropped to square).
-  - Or click **Pick app…** to choose any installed `.desktop` application; the GUI rasterises its icon to `~/.cache/streamdock-n3-linux/icons/` and fills the press command from the app's `Exec` line.
-- **Actions tab** edits the three round-button and three-knob (left / right / press) command mappings.
-
-Save writes back to `streamdock-n3-linux.config.json` and, if the service is active, restarts it. Logs go to `/tmp/streamdock-n3-gui.log`.
-
-`--tab N` (0, 1, 2) opens the window directly on Status / Keys / Actions.
+`streamdock-n3-gui --tab N` (0, 1, 2) opens directly on Status / Keys / Actions. Logs go to `$XDG_STATE_HOME/streamdock-n3/gui.log`.
 
 ## Configuration
 
-The controller reads [streamdock-n3-linux.config.json](streamdock-n3-linux.config.json).
-
-Top-level fields:
+Config lives at `$XDG_CONFIG_HOME/streamdock-n3/config.json` (typically `~/.config/streamdock-n3/config.json`). A default is seeded on first run.
 
 ```json
 {
   "brightness": 80,
-  "keys": {},
-  "actions": {}
+  "keys": {
+    "1": { "label": "Term", "color": "#1c63b8" }
+  },
+  "actions": {
+    "button.1.press": "alacritty"
+  }
 }
 ```
 
-`keys` controls the six LCD labels:
-
-```json
-"1": { "label": "Term", "color": "#1c63b8" }
-```
-
-Supported key fields:
+Key fields:
 
 ```text
 label    Text rendered into a generated LCD icon.
@@ -139,17 +118,11 @@ color    Hex background color for the generated icon.
 icon     Optional custom image path. If present and valid, it is used instead.
 ```
 
-`actions` maps event names to shell commands:
-
-```json
-"button.1.press": "alacritty"
-```
-
-Actions can be a command string or a list of command strings.
+Actions are mapped by event name to a shell command string or list of strings.
 
 ## Event Names
 
-SDK/HID event names:
+SDK/HID:
 
 ```text
 button.1.press through button.9.press
@@ -159,7 +132,7 @@ knob.2.left, knob.2.right, knob.2.press, knob.2.release
 knob.3.left, knob.3.right, knob.3.press, knob.3.release
 ```
 
-Evdev fallback event names:
+Evdev fallback:
 
 ```text
 evdev.KEY_NAME.press
@@ -167,148 +140,91 @@ evdev.KEY_NAME.release
 evdev.KEY_NAME.repeat
 ```
 
-Examples:
-
-```json
-"evdev.KEY_VOLUMEUP.press": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
-"evdev.KEY_VOLUMEDOWN.press": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
-```
-
-## Default Mapping
-
-Current default LCD key actions:
+Default mapping:
 
 ```text
-1  Term   alacritty
-2  Web    chromium
-3  Files  xdg-open "$HOME"
-4  OBS    obs
-5  Mute   wpctl speaker mute toggle
-6  Play   playerctl play-pause
-```
-
-Current default round button actions:
-
-```text
-7  Hyprland workspace 1
-8  Hyprland workspace 2
-9  Hyprland workspace 3
-```
-
-Current default knob actions:
-
-```text
-knob 1  speaker volume down/up, press to mute output
-knob 2  media previous/next, press to play/pause
-knob 3  microphone volume down/up, press to mute input
-```
-
-The config also includes standard evdev media-key fallbacks:
-
-```text
-KEY_VOLUMEUP
-KEY_VOLUMEDOWN
-KEY_MUTE
-KEY_PREVIOUSSONG
-KEY_NEXTSONG
-KEY_PLAYPAUSE
+1  Term   alacritty                  knob 1  speaker volume / mute
+2  Web    chromium                   knob 2  media prev/next / play-pause
+3  Files  xdg-open "$HOME"           knob 3  mic volume / mute
+4  OBS    obs                        button 7  workspace 1
+5  Mute   wpctl speaker mute toggle  button 8  workspace 2
+6  Play   playerctl play-pause       button 9  workspace 3
 ```
 
 ## Diagnostics
 
-Probe the official SDK path:
-
 ```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-probe.py --no-icons --map
+streamdock-n3-debug --seconds 20
+streamdock-n3-probe --no-icons --map
 ```
 
-Run raw input diagnostics:
-
-```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-debug.py --seconds 20
-```
-
-While it runs, press:
-
-```text
-six LCD keys
-three round buttons
-all knob presses
-all knob rotations in both directions
-```
-
-Expected diagnostic output can include:
-
-```text
-hidraw /dev/hidraw0: ...
-evdev /dev/input/event6: KEY_... value=1
-```
-
-If you see an `evdev.KEY_...` name that is not in `streamdock-n3-linux.config.json`, add it under `actions`.
+Press all keys, knobs, and rotations while `streamdock-n3-debug` runs. If you see an `evdev.KEY_...` name that is not in your config, add it under `actions`.
 
 ## Troubleshooting
 
-If buttons do not print:
+If buttons do nothing:
 
 ```bash
-./install_udev.sh
-```
-
-Then unplug and replug the dock.
-
-Check permissions:
-
-```bash
+sudo streamdock-n3-install
+# unplug + replug the dock
 ls -l /dev/hidraw* /dev/input/event*
 ```
 
-If knobs do not print, run:
+Dry-run to inspect what the daemon would do:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-debug.py --seconds 20
+streamdock-n3 --dry-run
 ```
 
-The knobs may be on `/dev/input/event*`, not the SDK/hidraw callback. The updated udev rule includes:
+## Development
+
+```bash
+uv sync --extra dev
+uv run pytest
+uv run ruff check .
+```
+
+Build a wheel:
+
+```bash
+uv build
+```
+
+Release flow:
+
+```bash
+# bump version in pyproject.toml, commit, tag, push:
+git tag v0.2.1
+git push --tags
+# GitHub Actions builds the wheel + sdist and publishes the release.
+```
+
+## Project Files
 
 ```text
-SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="6603", MODE="0666", TAG+="uaccess"
-```
+src/streamdock_n3/
+  daemon.py          Daemon (streamdock-n3 entry point).
+  gui.py             GTK4 GUI (streamdock-n3-gui).
+  probe.py           SDK smoke test (streamdock-n3-probe).
+  debug_tool.py      Raw hidraw + evdev diag (streamdock-n3-debug).
+  system_install.py  Install udev/service/desktop (streamdock-n3-install).
+  config.py          XDG config IO + defaults.
+  events.py          Event name mapping.
+  icons.py           Generated LCD icons + color parsing.
+  paths.py           XDG path helpers.
+  _data/             Packaged udev rule, systemd unit, desktop entry, default config.
+  _vendor/StreamDock/  Vendored official SDK + native transport.
 
-If the controller starts but commands do not do what you expect, run with:
-
-```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-linux.py --dry-run
-```
-
-This prints the event and command without executing it.
-
-## Autostart
-
-Install the systemd user service:
-
-```bash
-mkdir -p ~/.config/systemd/user
-cp streamdock-n3-linux.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now streamdock-n3-linux.service
-```
-
-View logs:
-
-```bash
-journalctl --user -u streamdock-n3-linux.service -f
-```
-
-The service currently assumes this project path:
-
-```text
-/home/asad/Documents/projects/streamdock-n3-linux
+tests/               Unit tests.
+.github/workflows/   CI + release workflows.
+Makefile             Source-tree installer for distro packagers.
+install.sh           One-shot end-user installer.
 ```
 
 ## Known Limitations
 
-- This is not a full clone of the Windows/macOS Stream Dock software UI.
-- Profiles, folders, OBS integration UI, and macro editing are not implemented yet.
+- Not a full clone of the Windows/macOS Stream Dock software UI.
+- Profiles, folders, and macro editing are not implemented.
 - Actions are shell commands in JSON.
-- Knob event names may vary by firmware mode. Use `streamdock-n3-debug.py` to confirm exact `evdev.KEY_...` names.
-- The vendored SDK is copied from the official StreamDock Device SDK because the packaged install path did not include the Linux native transport library in this environment.
+- Knob event names may vary by firmware mode — use `streamdock-n3-debug` to confirm.
+- The vendored SDK is bundled because the upstream pip package did not include the Linux native transport in this environment.

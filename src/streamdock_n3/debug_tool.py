@@ -4,22 +4,17 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import select
-import sys
 import threading
 import time
 from pathlib import Path
 
+from evdev import InputDevice, categorize, ecodes, list_devices  # type: ignore
+from StreamDock.DeviceManager import DeviceManager  # type: ignore[import-not-found]
 
-ROOT = Path(__file__).resolve().parent
-VENDOR = ROOT / "vendor"
-if str(VENDOR) not in sys.path:
-    sys.path.insert(0, str(VENDOR))
-
-from evdev import InputDevice, categorize, ecodes, list_devices
-from StreamDock.DeviceManager import DeviceManager
-
+import streamdock_n3  # noqa: F401  -- sets up vendored SDK on sys.path
 
 VID = "6603"
 PID = "1003"
@@ -44,18 +39,14 @@ def is_streamdock_evdev(path: str) -> bool:
 
 
 def streamdock_evdev_paths() -> list[Path]:
-    paths = set()
+    found: set[Path] = set()
     for link in Path("/dev/input/by-id").glob("*HOTSPOTEKUSB*event*"):
-        try:
-            paths.add(link.resolve())
-        except OSError:
-            pass
-
+        with contextlib.suppress(OSError):
+            found.add(link.resolve())
     for path in list_devices():
         if is_streamdock_evdev(path):
-            paths.add(Path(path))
-
-    return sorted(paths)
+            found.add(Path(path))
+    return sorted(found)
 
 
 def evdev_worker(stop: threading.Event) -> None:
@@ -84,10 +75,7 @@ def evdev_worker(stop: threading.Event) -> None:
                 for event in dev.read():
                     if event.type == ecodes.EV_KEY:
                         key = categorize(event)
-                        print(
-                            f"evdev {dev.path}: {key.keycode} value={event.value}",
-                            flush=True,
-                        )
+                        print(f"evdev {dev.path}: {key.keycode} value={event.value}", flush=True)
                     elif event.type != ecodes.EV_SYN:
                         print(
                             f"evdev {dev.path}: type={event.type} "
@@ -101,21 +89,20 @@ def evdev_worker(stop: threading.Event) -> None:
 
 
 def hidraw_paths() -> list[Path]:
-    paths = []
+    out = []
     for hidraw in sorted(Path("/sys/class/hidraw").glob("hidraw*")):
-        device = hidraw / "device"
-        uevent = device / "uevent"
+        uevent = hidraw / "device" / "uevent"
         try:
             text = uevent.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
         if f"v0000{VID.upper()}p0000{PID.upper()}" in text:
-            paths.append(Path("/dev") / hidraw.name)
-    return paths
+            out.append(Path("/dev") / hidraw.name)
+    return out
 
 
 def hidraw_worker(stop: threading.Event) -> None:
-    fds = []
+    fds: list[tuple[int, Path]] = []
     for path in hidraw_paths():
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
@@ -178,12 +165,12 @@ def sdk_worker(stop: threading.Event, init: bool) -> None:
         device.close()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="streamdock-n3-debug")
     parser.add_argument("--seconds", type=float, default=20)
     parser.add_argument("--sdk", action="store_true")
     parser.add_argument("--init", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     stop = threading.Event()
     workers = [
@@ -191,9 +178,7 @@ def main() -> int:
         threading.Thread(target=hidraw_worker, args=(stop,), daemon=True),
     ]
     if args.sdk:
-        workers.append(
-            threading.Thread(target=sdk_worker, args=(stop, args.init), daemon=True)
-        )
+        workers.append(threading.Thread(target=sdk_worker, args=(stop, args.init), daemon=True))
 
     for worker in workers:
         worker.start()

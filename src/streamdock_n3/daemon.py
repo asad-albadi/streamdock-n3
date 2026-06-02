@@ -4,98 +4,40 @@
 from __future__ import annotations
 
 import argparse
-import json
+import contextlib
 import os
 import signal
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any
 
+from StreamDock.DeviceManager import DeviceManager  # type: ignore[import-not-found]
 
-ROOT = Path(__file__).resolve().parent
-VENDOR = ROOT / "vendor"
-if str(VENDOR) not in sys.path:
-    sys.path.insert(0, str(VENDOR))
-
-from PIL import Image, ImageDraw, ImageFont
-from StreamDock.DeviceManager import DeviceManager
-from StreamDock.InputTypes import EventType
+import streamdock_n3  # noqa: F401  -- sets up vendored SDK on sys.path
+from streamdock_n3 import config as configmod
+from streamdock_n3 import paths
+from streamdock_n3.events import (
+    BUTTON_NAMES,  # noqa: F401
+    KNOB_NAMES,  # noqa: F401
+    describe_event,
+    evdev_event_key,
+    event_key,
+)
+from streamdock_n3.icons import FALLBACK_COLORS, make_icon, parse_color
 
 try:
-    from evdev import InputDevice, categorize, ecodes, list_devices
-except ImportError:  # pragma: no cover - dependency is declared in pyproject
-    InputDevice = None
-    categorize = None
-    ecodes = None
-    list_devices = None
+    from evdev import InputDevice, categorize, ecodes, list_devices  # type: ignore
+except ImportError:  # pragma: no cover
+    InputDevice = None  # type: ignore[assignment]
+    categorize = None  # type: ignore[assignment]
+    ecodes = None  # type: ignore[assignment]
+    list_devices = None  # type: ignore[assignment]
 
 
-DEFAULT_CONFIG = ROOT / "streamdock-n3-linux.config.json"
 VID = "6603"
 PID = "1003"
-
-BUTTON_NAMES = {
-    1: "lcd key 1",
-    2: "lcd key 2",
-    3: "lcd key 3",
-    4: "lcd key 4",
-    5: "lcd key 5",
-    6: "lcd key 6",
-    7: "round button 1",
-    8: "round button 2",
-    9: "round button 3",
-}
-
-KNOB_NAMES = {
-    "knob_1": "small knob 1",
-    "knob_2": "small knob 2",
-    "knob_3": "large knob",
-}
-
-
-def event_key(event) -> str | None:
-    if event.event_type == EventType.BUTTON:
-        state = "press" if event.state else "release"
-        return f"button.{event.key.value}.{state}"
-    if event.event_type == EventType.KNOB_PRESS:
-        state = "press" if event.state else "release"
-        knob = event.knob_id.value.replace("knob_", "")
-        return f"knob.{knob}.{state}"
-    if event.event_type == EventType.KNOB_ROTATE:
-        knob = event.knob_id.value.replace("knob_", "")
-        return f"knob.{knob}.{event.direction.value}"
-    return None
-
-
-def evdev_event_key(keycode: str, value: int) -> str:
-    state = "press" if value == 1 else "release" if value == 0 else "repeat"
-    return f"evdev.{keycode}.{state}"
-
-
-def describe_event(event) -> str:
-    if event.event_type == EventType.BUTTON:
-        state = "pressed" if event.state else "released"
-        name = BUTTON_NAMES.get(event.key.value, f"button {event.key.value}")
-        return f"{name} {state}"
-    if event.event_type == EventType.KNOB_PRESS:
-        state = "pressed" if event.state else "released"
-        name = KNOB_NAMES.get(event.knob_id.value, event.knob_id.value)
-        return f"{name} {state}"
-    if event.event_type == EventType.KNOB_ROTATE:
-        name = KNOB_NAMES.get(event.knob_id.value, event.knob_id.value)
-        return f"{name} rotated {event.direction.value}"
-    return "unknown event"
-
-
-def load_config(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    if not isinstance(data, dict):
-        raise ValueError("config root must be a JSON object")
-    return data
 
 
 def run_command(command: str, *, dry_run: bool) -> None:
@@ -131,56 +73,13 @@ def run_actions(actions: Any, *, dry_run: bool) -> None:
     raise ValueError(f"unsupported action: {actions!r}")
 
 
-def make_icon(
-    label: str,
-    color: tuple[int, int, int],
-    path: Path,
-    text_color: tuple[int, int, int] = (255, 255, 255),
-) -> None:
-    image = Image.new("RGB", (64, 64), color)
-    draw = ImageDraw.Draw(image)
-    size = 26 if len(label) <= 3 else 18 if len(label) <= 5 else 14
-    font = ImageFont.load_default(size=size)
-    lines = label.split("\\n")
-    line_boxes = [draw.textbbox((0, 0), line, font=font) for line in lines]
-    line_height = max(box[3] - box[1] for box in line_boxes)
-    total_height = line_height * len(lines) + 2 * (len(lines) - 1)
-    y = (image.height - total_height) // 2
-    for line, box in zip(lines, line_boxes):
-        width = box[2] - box[0]
-        x = (image.width - width) // 2
-        draw.text((x, y), line, fill=text_color, font=font)
-        y += line_height + 2
-    image.save(path, "JPEG", quality=95)
-
-
-def parse_color(value: Any, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
-    if not isinstance(value, str):
-        return fallback
-    value = value.strip().lstrip("#")
-    if len(value) != 6:
-        return fallback
-    try:
-        return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
-    except ValueError:
-        return fallback
-
-
 def apply_icons(device, config: dict[str, Any]) -> None:
     keys = config.get("keys", {})
     if not isinstance(keys, dict):
         return
 
-    icon_dir = ROOT / ".streamdock-icons"
-    icon_dir.mkdir(exist_ok=True)
-    fallback_colors = [
-        (28, 99, 184),
-        (24, 132, 82),
-        (181, 83, 36),
-        (132, 68, 168),
-        (50, 122, 138),
-        (174, 54, 92),
-    ]
+    icon_dir = paths.generated_key_dir()
+    icon_dir.mkdir(parents=True, exist_ok=True)
 
     for key in range(1, 7):
         item = keys.get(str(key), {})
@@ -189,24 +88,17 @@ def apply_icons(device, config: dict[str, Any]) -> None:
         icon_path = item.get("icon")
         if icon_path:
             source = Path(icon_path).expanduser()
-            if not source.is_absolute():
-                source = ROOT / source
             if source.exists():
                 device.set_key_image(key, str(source))
                 continue
 
         label = str(item.get("label", key))
-        color = parse_color(item.get("color"), fallback_colors[key - 1])
+        color = parse_color(item.get("color"), FALLBACK_COLORS[key - 1])
         generated = icon_dir / f"key-{key}.jpg"
         make_icon(label, color, generated)
         device.set_key_image(key, str(generated))
 
     device.refresh()
-
-
-def action_map(config: dict[str, Any]) -> dict[str, Any]:
-    actions = config.get("actions", {})
-    return actions if isinstance(actions, dict) else {}
 
 
 def open_device():
@@ -218,7 +110,7 @@ def open_device():
 
 
 def hidraw_paths() -> list[Path]:
-    paths = []
+    out = []
     token = f"v0000{VID.upper()}p0000{PID.upper()}"
     for hidraw in sorted(Path("/sys/class/hidraw").glob("hidraw*")):
         uevent = hidraw / "device" / "uevent"
@@ -227,8 +119,8 @@ def hidraw_paths() -> list[Path]:
         except OSError:
             continue
         if token in text:
-            paths.append(Path("/dev") / hidraw.name)
-    return paths
+            out.append(Path("/dev") / hidraw.name)
+    return out
 
 
 def is_streamdock_evdev(path: str) -> bool:
@@ -248,47 +140,39 @@ def is_streamdock_evdev(path: str) -> bool:
 
 
 def streamdock_evdev_paths() -> list[Path]:
-    paths = set()
+    found: set[Path] = set()
     by_id = Path("/dev/input/by-id")
     if by_id.exists():
         for link in by_id.glob("*HOTSPOTEKUSB*event*"):
-            try:
-                paths.add(link.resolve())
-            except OSError:
-                pass
+            with contextlib.suppress(OSError):
+                found.add(link.resolve())
 
     if list_devices is not None:
         for path in list_devices():
             if is_streamdock_evdev(path):
-                paths.add(Path(path))
+                found.add(Path(path))
 
-    return sorted(paths)
+    return sorted(found)
+
+
+def _warn_unreadable(label: str, items: list[Path]) -> None:
+    unreadable = [p for p in items if not os.access(p, os.R_OK)]
+    if not unreadable:
+        return
+    joined = ", ".join(str(p) for p in unreadable)
+    print(
+        f"warning: StreamDock {label} nodes are not readable by this user: {joined}\n"
+        "Run `sudo streamdock-n3-install` and unplug/replug the dock.",
+        flush=True,
+    )
 
 
 def warn_if_hidraw_unreadable() -> None:
-    unreadable = [path for path in hidraw_paths() if not os.access(path, os.R_OK)]
-    if not unreadable:
-        return
-    joined = ", ".join(str(path) for path in unreadable)
-    print(
-        "warning: StreamDock hidraw nodes are not readable by this user: "
-        f"{joined}\n"
-        "Install the udev rule with ./install_udev.sh, then unplug/replug the dock.",
-        flush=True,
-    )
+    _warn_unreadable("hidraw", hidraw_paths())
 
 
 def warn_if_evdev_unreadable() -> None:
-    unreadable = [path for path in streamdock_evdev_paths() if not os.access(path, os.R_OK)]
-    if not unreadable:
-        return
-    joined = ", ".join(str(path) for path in unreadable)
-    print(
-        "warning: StreamDock input event nodes are not readable by this user: "
-        f"{joined}\n"
-        "Run ./install_udev.sh, then unplug/replug the dock.",
-        flush=True,
-    )
+    _warn_unreadable("input event", streamdock_evdev_paths())
 
 
 def evdev_worker(stop: threading.Event, actions: dict[str, Any], dry_run: bool) -> None:
@@ -324,18 +208,21 @@ def evdev_worker(stop: threading.Event, actions: dict[str, Any], dry_run: bool) 
         time.sleep(0.02)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="streamdock-n3")
+    parser.add_argument("--config", type=Path, help="Override config path.")
     parser.add_argument("--brightness", type=int)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-icons", action="store_true")
     parser.add_argument("--no-init", action="store_true")
     parser.add_argument("--seconds", type=float, default=0)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    config = load_config(args.config)
-    actions = action_map(config)
+    paths.ensure_runtime_dirs()
+    config_path = args.config or configmod.ensure_config()
+    config = configmod.load(config_path)
+    actions = configmod.action_map(config)
+
     brightness = args.brightness
     if brightness is None:
         brightness = int(config.get("brightness", 80))
@@ -351,7 +238,7 @@ def main() -> int:
     stop = False
     stop_event = threading.Event()
 
-    def handle_signal(signum, frame):
+    def handle_signal(_signum, _frame):
         nonlocal stop
         stop = True
         stop_event.set()
@@ -359,7 +246,7 @@ def main() -> int:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    def on_input(dev, event):
+    def on_input(_dev, event):
         key = event_key(event)
         print(f"{describe_event(event)} [{key}]", flush=True)
         if key:

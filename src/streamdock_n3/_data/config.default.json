@@ -1,0 +1,37 @@
+{
+  "brightness": 80,
+  "keys": {
+    "1": { "label": "Term", "color": "#1c63b8" },
+    "2": { "label": "Web", "color": "#188452" },
+    "3": { "label": "Files", "color": "#b55324" },
+    "4": { "label": "OBS", "color": "#8444a8" },
+    "5": { "label": "Mute", "color": "#327a8a" },
+    "6": { "label": "Play", "color": "#ae365c" }
+  },
+  "actions": {
+    "button.1.press": "alacritty",
+    "button.2.press": "xdg-open https://",
+    "button.3.press": "xdg-open \"$HOME\"",
+    "button.4.press": "obs",
+    "button.5.press": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "button.6.press": "playerctl play-pause",
+    "button.7.press": "hyprctl dispatch workspace 1",
+    "button.8.press": "hyprctl dispatch workspace 2",
+    "button.9.press": "hyprctl dispatch workspace 3",
+    "knob.1.left": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
+    "knob.1.right": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
+    "knob.1.press": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "knob.2.left": "playerctl previous",
+    "knob.2.right": "playerctl next",
+    "knob.2.press": "playerctl play-pause",
+    "knob.3.left": "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%-",
+    "knob.3.right": "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%+",
+    "knob.3.press": "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle",
+    "evdev.KEY_VOLUMEDOWN.press": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
+    "evdev.KEY_VOLUMEUP.press": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
+    "evdev.KEY_MUTE.press": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "evdev.KEY_PREVIOUSSONG.press": "playerctl previous",
+    "evdev.KEY_NEXTSONG.press": "playerctl next",
+    "evdev.KEY_PLAYPAUSE.press": "playerctl play-pause"
+  }
+}
