@@ -1,0 +1,14 @@
+[Unit]
+Description=Stream Dock N3 Linux Controller
+After=graphical-session.target pipewire.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Documents/projects/stream_dock_sw
+ExecStart=/home/asad/.local/bin/uv run python streamdock_linux.py
+Environment=UV_CACHE_DIR=.uv-cache
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

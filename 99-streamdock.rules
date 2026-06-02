@@ -1,0 +1,4 @@
+# StreamDock / FHOOU / Mirabox devices.
+SUBSYSTEM=="usb", ATTR{idVendor}=="6603", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="6603", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="6603", MODE="0666", TAG+="uaccess"
