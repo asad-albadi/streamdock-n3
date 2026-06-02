@@ -13,10 +13,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from StreamDock.DeviceManager import DeviceManager  # type: ignore[import-not-found]
-
-import streamdock_n3  # noqa: F401  -- sets up vendored SDK on sys.path
 from streamdock_n3 import config as configmod
+from streamdock_n3._vendor.StreamDock.DeviceManager import DeviceManager
 from streamdock_n3 import paths
 from streamdock_n3.events import (
     BUTTON_NAMES,  # noqa: F401
@@ -183,7 +181,7 @@ def evdev_worker(stop: threading.Event, actions: dict[str, Any], dry_run: bool) 
     for path in streamdock_evdev_paths():
         try:
             dev = InputDevice(str(path))
-            dev.set_nonblocking(True)
+            os.set_blocking(dev.fileno(), False)
             devices.append(dev)
             print(f"evdev listening: {path} {dev.name!r}", flush=True)
         except OSError as exc:

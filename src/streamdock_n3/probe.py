@@ -7,10 +7,8 @@ import argparse
 import signal
 import time
 
-from StreamDock.DeviceManager import DeviceManager  # type: ignore[import-not-found]
-
-import streamdock_n3  # noqa: F401  -- sets up vendored SDK on sys.path
 from streamdock_n3 import paths
+from streamdock_n3._vendor.StreamDock.DeviceManager import DeviceManager
 from streamdock_n3.events import BUTTON_NAMES, KNOB_NAMES, describe_event
 from streamdock_n3.icons import FALLBACK_COLORS, make_icon
 

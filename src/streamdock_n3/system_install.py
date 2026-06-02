@@ -7,13 +7,18 @@ under sudo where the user session is not available.
 
 from __future__ import annotations
 
-import argparse
-import os
-import shutil
-import subprocess
 import sys
-from importlib import resources
-from pathlib import Path
+
+# Run-as-root would otherwise drop root-owned .pyc files into the user's
+# package directory, blocking later user-owned `uv tool install --force`.
+sys.dont_write_bytecode = True
+
+import argparse  # noqa: E402
+import os  # noqa: E402
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+from importlib import resources  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 UDEV_DST = Path("/etc/udev/rules.d/99-streamdock.rules")
 SERVICE_DST = Path("/usr/lib/systemd/user/streamdock-n3.service")
@@ -31,10 +36,16 @@ def _data(name: str) -> Path:
 def _resolve_bin_dir(explicit: str | None) -> Path:
     if explicit:
         return Path(explicit)
+    # 1. Trust our own argv[0]: the sibling `streamdock-n3` lives next to us.
+    #    This survives `sudo` where the invoking user's PATH is not inherited.
+    self_dir = Path(sys.argv[0]).resolve().parent if sys.argv and sys.argv[0] else None
+    if self_dir and (self_dir / "streamdock-n3").exists():
+        return self_dir
+    # 2. Fall back to PATH lookup.
     found = shutil.which("streamdock-n3")
     if found:
         return Path(found).resolve().parent
-    # Fallback to /usr/bin; user can override with --bin-dir.
+    # 3. Last resort.
     return Path("/usr/bin")
 
 

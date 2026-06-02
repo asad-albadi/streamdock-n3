@@ -1,4 +1,4 @@
-from StreamDock.FeatrueOption import device_type
+from ..FeatrueOption import device_type
 from .StreamDock import StreamDock
 from ..InputTypes import Direction, InputEvent, ButtonKey, EventType, KnobId
 from PIL import Image
