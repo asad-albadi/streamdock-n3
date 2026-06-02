@@ -1,32 +1,56 @@
 # streamdock-n3-linux
 
-Linux controller and GTK4 GUI for the FHOOU/Mirabox Stream Dock N3.
+[![Release](https://img.shields.io/github/v/release/asad-albadi/streamdock-n3?label=release&color=blue)](https://github.com/asad-albadi/streamdock-n3/releases/latest)
+[![CI](https://github.com/asad-albadi/streamdock-n3/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/asad-albadi/streamdock-n3/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-The N3 identifies as USB `6603:1003` with product string `HOTSPOTEKUSB HID DEMO`. It exposes:
-
-- `/dev/hidraw*` — vendor HID interface used by the official SDK for LCD images, brightness, and most button reports.
-- `/dev/input/event*` — keyboard-style input interface used by some firmware modes for standard key/media events, including knob events on this setup.
-
-The official StreamDock Device SDK is vendored under `src/streamdock_n3/_vendor/StreamDock/` because the pip-installable package did not ship the Linux native transport in this environment.
+Linux controller and GTK4 GUI for the FHOOU/Mirabox Stream Dock N3 (USB `6603:1003`, product string `HOTSPOTEKUSB HID DEMO`).
 
 ## Install
-
-### One-shot (recommended)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/asad-albadi/streamdock-n3/master/install.sh | bash
 ```
 
-The script downloads the latest release wheel, installs it via `pipx` (or `pip --user` as a fallback), then runs `sudo streamdock-n3-install` to drop the udev rule, systemd user service, and desktop entry.
+That's it. The script fetches the latest release wheel, installs it via `pipx` (with `--system-site-packages` so the GUI can import PyGObject), then runs `sudo streamdock-n3-install` to drop the udev rule, systemd user service, and desktop entry. You'll be prompted for your sudo password once.
 
-To pin a version or skip the system step:
+After it finishes:
 
 ```bash
+systemctl --user daemon-reload
+systemctl --user enable --now streamdock-n3.service
+```
+
+Unplug and replug the dock once so the new udev rules apply.
+
+### Requirements
+
+- Linux (tested on Arch / Omarchy).
+- Python 3.11+, `pipx` (or `pip --user`).
+- For the GUI: distro-provided GTK 4 + `python-gobject`. On Arch: `pacman -S gtk4 python-gobject`.
+
+### Variations
+
+```bash
+# Pin to a specific release tag (skip the floating "latest" lookup):
 curl -fsSL https://raw.githubusercontent.com/asad-albadi/streamdock-n3/master/install.sh \
     | bash -s -- --version v0.2.0
+
+# Install the wheel only — skip the sudo step that drops system files:
 curl -fsSL https://raw.githubusercontent.com/asad-albadi/streamdock-n3/master/install.sh \
     | bash -s -- --no-system
+
+# Pin both the installer and the wheel to one tag (most reproducible):
+curl -fsSL https://raw.githubusercontent.com/asad-albadi/streamdock-n3/v0.2.0/install.sh \
+    | bash -s -- --version v0.2.0
 ```
+
+## How it works
+
+- `/dev/hidraw*` — vendor HID interface used by the official SDK for LCD images, brightness, and button reports.
+- `/dev/input/event*` — keyboard-style input interface used by some firmware modes for media keys.
+
+The official StreamDock Device SDK is vendored under `src/streamdock_n3/_vendor/StreamDock/` because the pip-installable upstream did not ship the Linux native transport in this environment.
 
 ### Manual
 
