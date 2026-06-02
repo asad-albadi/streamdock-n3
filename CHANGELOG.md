@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased — packaging
+## 0.2.1 — 2026-06-02
+
+### Changed
+
+- `install.sh` no longer prints a redundant "Next steps" block — the script now runs `systemctl --user daemon-reload` and `systemctl --user enable --now streamdock-n3.service` itself, so the curl|bash one-liner is zero-touch after the sudo prompt.
+- README title is now "Stream Dock N3 for Linux" with a one-line description of what the project actually does, instead of just repeating the repo name.
+
+## 0.2.0 — 2026-06-02 — packaging
 
 ### Added
 

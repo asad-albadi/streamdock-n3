@@ -1,10 +1,10 @@
-# streamdock-n3-linux
+# Stream Dock N3 for Linux
 
 [![Release](https://img.shields.io/github/v/release/asad-albadi/streamdock-n3?label=release&color=blue)](https://github.com/asad-albadi/streamdock-n3/releases/latest)
 [![CI](https://github.com/asad-albadi/streamdock-n3/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/asad-albadi/streamdock-n3/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Linux controller and GTK4 GUI for the FHOOU/Mirabox Stream Dock N3 (USB `6603:1003`, product string `HOTSPOTEKUSB HID DEMO`).
+A daemon and GTK4 GUI that turns the FHOOU / Mirabox **Stream Dock N3** (USB `6603:1003`) into a real Linux macropad — bind any of the 6 LCD keys, 3 round buttons, and 3 knobs to shell commands, control volume / media / workspaces, and edit it all from a themed GUI.
 
 ## Install
 

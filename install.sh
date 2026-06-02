@@ -76,18 +76,26 @@ if [ "$DO_SYSTEM" -eq 1 ]; then
         echo "streamdock-n3-install not on PATH; system install skipped." >&2
         echo "If using pip --user, ensure ~/.local/bin is on PATH and rerun:" >&2
         echo "  sudo streamdock-n3-install" >&2
-    else
-        echo "running: sudo streamdock-n3-install"
-        sudo "$(command -v streamdock-n3-install)"
+        exit 0
     fi
 
-    cat <<'EOF'
+    echo "running: sudo streamdock-n3-install"
+    sudo "$(command -v streamdock-n3-install)"
 
-Next steps:
-  1) Unplug and replug the Stream Dock so udev rules apply.
-  2) systemctl --user daemon-reload
-  3) systemctl --user enable --now streamdock-n3.service
-EOF
+    # streamdock-n3-install already reloads udev and applies the rule to the
+    # currently-plugged-in device; we still need a systemd --user reload and
+    # an enable+start to make the service take effect.
+    systemctl --user daemon-reload
+    if systemctl --user enable --now streamdock-n3.service; then
+        echo
+        echo "streamdock-n3.service is enabled and running."
+        echo "If buttons don't respond, unplug+replug the dock once."
+    else
+        echo
+        echo "Service install succeeded but enable+start failed (see"
+        echo "systemctl --user status streamdock-n3.service). Try unplugging"
+        echo "and replugging the dock, then re-run the enable command."
+    fi
 else
     echo "skipped system install (udev/service/desktop)."
 fi
