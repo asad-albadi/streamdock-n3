@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from streamdock_n3 import config as configmod
-from streamdock_n3._vendor.StreamDock.DeviceManager import DeviceManager
 from streamdock_n3 import paths
+from streamdock_n3._vendor.StreamDock.DeviceManager import DeviceManager
 from streamdock_n3.events import (
     BUTTON_NAMES,  # noqa: F401
     KNOB_NAMES,  # noqa: F401
