@@ -28,6 +28,11 @@
 - `install_udev.sh` (replaced by `streamdock-n3-install`).
 - Top-level hyphenated `.py` scripts (`streamdock-n3-linux.py`, etc.) — replaced by package modules + entry points.
 
+### Notes
+
+- The GUI requires `python-gobject` (PyGObject), which is provided by the distro and not reliably pip-installable. `install.sh` therefore uses `pipx install --system-site-packages`; manual installs should do the same. Daemon and probe/debug entry points have no such requirement.
+- Users with an existing repo-root `streamdock-n3-linux.config.json` should copy it to `~/.config/streamdock-n3/config.json` to preserve customizations; a fresh default is seeded if none exists.
+
 ## 2026-06-02 — GUI
 
 ### Added

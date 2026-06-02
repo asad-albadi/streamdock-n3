@@ -33,9 +33,15 @@ need() {
 need curl
 need python3
 
-# Pick an installer: prefer pipx, fall back to pip --user.
+# Pick an installer. Prefer pipx with --system-site-packages so the GUI can
+# import the system-provided python-gobject (PyGObject is not reliably
+# pip-installable). Fall back to pip --user, which already shares the user's
+# site-packages.
 if command -v pipx >/dev/null 2>&1; then
-    PY_INSTALL=(pipx install --force)
+    PY_INSTALL=(pipx install --force --system-site-packages)
+elif command -v uv >/dev/null 2>&1; then
+    echo "pipx not found; using uv tool install (CLI only; GUI requires pipx or system python-gobject)" >&2
+    PY_INSTALL=(uv tool install --force)
 else
     echo "pipx not found; falling back to pip --user (you should install pipx)" >&2
     PY_INSTALL=(python3 -m pip install --user --upgrade --break-system-packages)

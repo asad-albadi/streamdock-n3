@@ -31,11 +31,14 @@ curl -fsSL https://raw.githubusercontent.com/asad-albadi/streamdock-n3/master/in
 ### Manual
 
 ```bash
-pipx install streamdock-n3-linux        # once PyPI publishing is enabled
-sudo streamdock-n3-install              # udev rule + systemd unit + desktop entry
+# Use --system-site-packages so the GUI can import the system PyGObject.
+pipx install --system-site-packages streamdock-n3-linux   # once PyPI publishing is enabled
+sudo streamdock-n3-install                                 # udev rule + systemd unit + desktop entry
 systemctl --user daemon-reload
 systemctl --user enable --now streamdock-n3.service
 ```
+
+> **Why `--system-site-packages`?** The GUI uses GTK4 via `python-gobject`, which is provided by the distro and not reliably installable via pip. Sharing the user's site-packages lets `streamdock-n3-gui` import it. The daemon and probe/debug entry points work either way.
 
 Then unplug and replug the Stream Dock so udev rules apply.
 
