@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 — 2026-06-02
+
+### Changed
+
+- `install.sh` now hard-requires `pipx` and exits with a per-distro install hint if missing, instead of silently falling back to `uv tool install` or `pip --user`. Those fallbacks ship a venv that cannot import the distro's `python-gobject`, so the GUI entry point crashes at startup. Failing fast with a clear message is better than a half-broken install.
+
 ## 0.2.1 — 2026-06-02
 
 ### Changed

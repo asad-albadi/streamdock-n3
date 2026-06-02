@@ -33,19 +33,33 @@ need() {
 need curl
 need python3
 
-# Pick an installer. Prefer pipx with --system-site-packages so the GUI can
-# import the system-provided python-gobject (PyGObject is not reliably
-# pip-installable). Fall back to pip --user, which already shares the user's
-# site-packages.
-if command -v pipx >/dev/null 2>&1; then
-    PY_INSTALL=(pipx install --force --system-site-packages)
-elif command -v uv >/dev/null 2>&1; then
-    echo "pipx not found; using uv tool install (CLI only; GUI requires pipx or system python-gobject)" >&2
-    PY_INSTALL=(uv tool install --force)
-else
-    echo "pipx not found; falling back to pip --user (you should install pipx)" >&2
-    PY_INSTALL=(python3 -m pip install --user --upgrade --break-system-packages)
+# Require pipx. The GUI needs the system-provided python-gobject (the `gi`
+# binding), which is not reliably pip-installable. pipx with
+# --system-site-packages is the only path that consistently exposes it to the
+# entry-point venv. uv tool / pip --user fallbacks either lose `gi` access or
+# clash with PEP 668, so we exit early with a clear install hint instead.
+if ! command -v pipx >/dev/null 2>&1; then
+    cat <<'EOF' >&2
+error: `pipx` is required to install streamdock-n3-linux.
+
+Install it for your distribution, then re-run this script:
+
+    Arch / Omarchy:   sudo pacman -S python-pipx
+    Debian / Ubuntu:  sudo apt install pipx
+    Fedora:           sudo dnf install pipx
+    openSUSE:         sudo zypper install python3-pipx
+    macOS (Homebrew): brew install pipx
+    Any system:       python3 -m pip install --user --break-system-packages pipx
+
+Why pipx? The GUI imports the distro-provided python-gobject (GTK4 binding),
+which a vanilla pip install cannot expose. pipx with --system-site-packages
+gives the entry-point venv access to it while still keeping the install
+isolated from your system Python.
+EOF
+    exit 1
 fi
+
+PY_INSTALL=(pipx install --force --system-site-packages)
 
 # Resolve the wheel URL.
 if [ "$VERSION" = "latest" ]; then
