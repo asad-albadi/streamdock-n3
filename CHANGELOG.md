@@ -11,24 +11,24 @@
   - keyboard/input interface for Linux input events.
 - Vendored the official StreamDock Python SDK under `vendor/StreamDock`.
 - Added `pyproject.toml` and `uv.lock` for Python dependency management.
-- Added `streamdock_probe.py`:
+- Added `streamdock-n3-probe.py`:
   - enumerates the N3.
   - initializes the device.
   - sets test LCD icons.
   - prints SDK-decoded input events.
-- Added `streamdock_linux.py`:
-  - reads `streamdock.config.json`.
+- Added `streamdock-n3-linux.py`:
+  - reads `streamdock-n3-linux.config.json`.
   - sets LCD labels/colors.
   - listens for SDK/HID events.
   - listens for evdev fallback events.
   - executes mapped shell commands.
   - supports dry-run mode.
-- Added `streamdock.config.json` with default mappings:
+- Added `streamdock-n3-linux.config.json` with default mappings:
   - LCD keys for terminal, browser, files, OBS, mute, play/pause.
   - round buttons for Hyprland workspaces 1-3.
   - knob mappings for volume, media, and microphone controls.
   - evdev media-key fallback mappings.
-- Added `streamdock_debug_input.py`:
+- Added `streamdock-n3-debug.py`:
   - monitors Stream Dock hidraw reports.
   - monitors Stream Dock evdev keyboard events.
   - helps discover exact event names.
@@ -37,7 +37,7 @@
   - Stream Dock hidraw nodes.
   - Stream Dock input event nodes.
 - Added `install_udev.sh` to install and reload udev rules.
-- Added `streamdock-linux.service` for systemd user autostart.
+- Added `streamdock-n3-linux.service` for systemd user autostart.
 - Added `.gitignore` for generated icons, uv cache, virtualenv, and Python bytecode.
 
 ### Changed
@@ -62,6 +62,6 @@
 
 ### Known Issues
 
-- Exact knob rotation event names still need final confirmation from `streamdock_debug_input.py` output after the updated udev rule is installed and the dock is replugged.
+- Exact knob rotation event names still need final confirmation from `streamdock-n3-debug.py` output after the updated udev rule is installed and the dock is replugged.
 - This project currently uses shell-command actions only; no graphical profile editor exists.
 - The official SDK is vendored because the Python package install path did not include the required native Linux transport library in this environment.

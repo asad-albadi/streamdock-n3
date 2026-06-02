@@ -9,4 +9,4 @@ sudo udevadm trigger --attr-match=idVendor=6603 || true
 
 echo "Installed StreamDock udev rules."
 echo "Unplug and replug the Stream Dock N3, then run:"
-echo "  UV_CACHE_DIR=.uv-cache uv run python streamdock_debug_input.py --seconds 20"
+echo "  UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-debug.py --seconds 20"

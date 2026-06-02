@@ -1,5 +1,5 @@
 [project]
-name = "stream-dock-sw"
+name = "streamdock-n3-linux"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [

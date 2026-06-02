@@ -1,4 +1,4 @@
-# Stream Dock N3 Linux Controller
+# streamdock-n3-linux
 
 Linux controller and diagnostics for the FHOOU/Mirabox Stream Dock N3.
 
@@ -12,13 +12,13 @@ The official StreamDock Device SDK supports Linux and N3, but the Python package
 ## Project Files
 
 ```text
-streamdock_linux.py        Main config-driven Linux controller.
-streamdock.config.json     Labels, colors, and action commands.
-streamdock_probe.py        Simple SDK probe for device, LCD keys, and SDK events.
-streamdock_debug_input.py  Raw hidraw + evdev diagnostic tool.
+streamdock-n3-linux.py        Main config-driven Linux controller.
+streamdock-n3-linux.config.json     Labels, colors, and action commands.
+streamdock-n3-probe.py        Simple SDK probe for device, LCD keys, and SDK events.
+streamdock-n3-debug.py  Raw hidraw + evdev diagnostic tool.
 99-streamdock.rules        udev permissions for hidraw and input event nodes.
 install_udev.sh            Installs and reloads the udev rule.
-streamdock-linux.service   systemd user service template.
+streamdock-n3-linux.service   systemd user service template.
 vendor/StreamDock/         Vendored official Python SDK source and native transport.
 ```
 
@@ -34,7 +34,7 @@ vendor/StreamDock/         Vendored official Python SDK source and native transp
 Install device permissions:
 
 ```bash
-cd /home/asad/Documents/projects/stream_dock_sw
+cd /home/asad/Documents/projects/streamdock-n3-linux
 ./install_udev.sh
 ```
 
@@ -54,13 +54,13 @@ This matters because the screen/buttons and knob/media-style events may arrive t
 Start the controller:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock_linux.py
+UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-linux.py
 ```
 
 Test without executing commands:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock_linux.py --dry-run
+UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-linux.py --dry-run
 ```
 
 Useful flags:
@@ -76,7 +76,7 @@ Useful flags:
 
 ## Configuration
 
-The controller reads [streamdock.config.json](streamdock.config.json).
+The controller reads [streamdock-n3-linux.config.json](streamdock-n3-linux.config.json).
 
 Top-level fields:
 
@@ -182,13 +182,13 @@ KEY_PLAYPAUSE
 Probe the official SDK path:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock_probe.py --no-icons --map
+UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-probe.py --no-icons --map
 ```
 
 Run raw input diagnostics:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock_debug_input.py --seconds 20
+UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-debug.py --seconds 20
 ```
 
 While it runs, press:
@@ -207,7 +207,7 @@ hidraw /dev/hidraw0: ...
 evdev /dev/input/event6: KEY_... value=1
 ```
 
-If you see an `evdev.KEY_...` name that is not in `streamdock.config.json`, add it under `actions`.
+If you see an `evdev.KEY_...` name that is not in `streamdock-n3-linux.config.json`, add it under `actions`.
 
 ## Troubleshooting
 
@@ -228,7 +228,7 @@ ls -l /dev/hidraw* /dev/input/event*
 If knobs do not print, run:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock_debug_input.py --seconds 20
+UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-debug.py --seconds 20
 ```
 
 The knobs may be on `/dev/input/event*`, not the SDK/hidraw callback. The updated udev rule includes:
@@ -240,7 +240,7 @@ SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="6603", MODE="0666", TAG+
 If the controller starts but commands do not do what you expect, run with:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run python streamdock_linux.py --dry-run
+UV_CACHE_DIR=.uv-cache uv run python streamdock-n3-linux.py --dry-run
 ```
 
 This prints the event and command without executing it.
@@ -251,21 +251,21 @@ Install the systemd user service:
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp streamdock-linux.service ~/.config/systemd/user/
+cp streamdock-n3-linux.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now streamdock-linux.service
+systemctl --user enable --now streamdock-n3-linux.service
 ```
 
 View logs:
 
 ```bash
-journalctl --user -u streamdock-linux.service -f
+journalctl --user -u streamdock-n3-linux.service -f
 ```
 
 The service currently assumes this project path:
 
 ```text
-/home/asad/Documents/projects/stream_dock_sw
+/home/asad/Documents/projects/streamdock-n3-linux
 ```
 
 ## Known Limitations
@@ -273,5 +273,5 @@ The service currently assumes this project path:
 - This is not a full clone of the Windows/macOS Stream Dock software UI.
 - Profiles, folders, OBS integration UI, and macro editing are not implemented yet.
 - Actions are shell commands in JSON.
-- Knob event names may vary by firmware mode. Use `streamdock_debug_input.py` to confirm exact `evdev.KEY_...` names.
+- Knob event names may vary by firmware mode. Use `streamdock-n3-debug.py` to confirm exact `evdev.KEY_...` names.
 - The vendored SDK is copied from the official StreamDock Device SDK because the packaged install path did not include the Linux native transport library in this environment.

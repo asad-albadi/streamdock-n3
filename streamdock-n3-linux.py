@@ -33,7 +33,7 @@ except ImportError:  # pragma: no cover - dependency is declared in pyproject
     list_devices = None
 
 
-DEFAULT_CONFIG = ROOT / "streamdock.config.json"
+DEFAULT_CONFIG = ROOT / "streamdock-n3-linux.config.json"
 VID = "6603"
 PID = "1003"
 
