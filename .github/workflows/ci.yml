@@ -16,7 +16,7 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install system libs for evdev / Pillow
         run: |
@@ -24,7 +24,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libevdev-dev libudev-dev libjpeg-dev zlib1g-dev
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
 

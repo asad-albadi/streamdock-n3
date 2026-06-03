@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.3 — 2026-06-03
+
+### Fixed
+
+- Daemon shutdown no longer emits `tcache_thread_shutdown(): unaligned tcache chunk detected` followed by a SIGABRT core dump. The vendored SDK's `libtransport.so` has a broken thread-cleanup path; joining its reader/heartbeat threads in `device.close()` triggers glibc's tcache integrity check. The daemon now skips `device.close()` and `os._exit()`s past Python's interpreter finalization, so the kernel reclaims the HID file descriptor cleanly and systemd sees a normal exit code.
+
+### Changed
+
+- Removed the obsolete repo-root `streamdock-n3-linux.config.json`. The runtime config lives at `$XDG_CONFIG_HOME/streamdock-n3/config.json`; the file at the repo root was only kept as a historical reference and is no longer needed.
+- CI and release workflows bumped to `actions/checkout@v5` and `astral-sh/setup-uv@v6` so GitHub stops complaining about the Node 20 deprecation.
+
 ## 0.2.2 — 2026-06-02
 
 ### Changed

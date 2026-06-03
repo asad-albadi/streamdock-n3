@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "streamdock-n3-linux"
-version = "0.2.2"
+version = "0.2.3"
 description = "Linux controller and GTK4 GUI for the FHOOU/Mirabox Stream Dock N3."
 readme = "README.md"
 requires-python = ">=3.11"

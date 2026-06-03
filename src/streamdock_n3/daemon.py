@@ -273,9 +273,12 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(0.1)
     finally:
         stop_event.set()
-        device.close()
-
-    return 0
+        # Do NOT call device.close(): joining the vendored SDK's reader
+        # and heartbeat threads triggers libtransport.so's broken thread
+        # cleanup, which glibc's tcache integrity check then aborts on.
+        # Hard-exit instead — the kernel reclaims the HID fd cleanly and
+        # the daemon threads die without running their C destructors.
+        os._exit(0 if stop else 1)
 
 
 if __name__ == "__main__":
