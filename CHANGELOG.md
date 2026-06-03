@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4 — 2026-06-03
+
+### Fixed
+
+- `install.sh` now `systemctl --user restart`s the service after installation instead of `enable --now`. The old command was a no-op when the service was already running, so re-running the one-liner to upgrade silently kept the previous binary live. With `restart`, the same `curl … | bash` command works for both fresh installs and upgrades.
+
 ## 0.2.3 — 2026-06-03
 
 ### Fixed

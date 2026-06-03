@@ -98,17 +98,20 @@ if [ "$DO_SYSTEM" -eq 1 ]; then
 
     # streamdock-n3-install already reloads udev and applies the rule to the
     # currently-plugged-in device; we still need a systemd --user reload and
-    # an enable+start to make the service take effect.
+    # an enable+restart so a fresh install starts the service AND an upgrade
+    # actually picks up the new binary (enable --now is a no-op if already
+    # running, which would silently keep the old version live).
     systemctl --user daemon-reload
-    if systemctl --user enable --now streamdock-n3.service; then
+    systemctl --user enable streamdock-n3.service >/dev/null 2>&1 || true
+    if systemctl --user restart streamdock-n3.service; then
         echo
-        echo "streamdock-n3.service is enabled and running."
+        echo "streamdock-n3.service is enabled and running on the new wheel."
         echo "If buttons don't respond, unplug+replug the dock once."
     else
         echo
-        echo "Service install succeeded but enable+start failed (see"
+        echo "Service install succeeded but restart failed (see"
         echo "systemctl --user status streamdock-n3.service). Try unplugging"
-        echo "and replugging the dock, then re-run the enable command."
+        echo "and replugging the dock, then re-run the restart command."
     fi
 else
     echo "skipped system install (udev/service/desktop)."
