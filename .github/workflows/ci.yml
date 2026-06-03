@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Force Node 24 for actions that haven't migrated yet (e.g. setup-uv@v6).
+# Drop this once all referenced actions ship a Node-24 runtime by default.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   lint-test-build:
     runs-on: ubuntu-latest
