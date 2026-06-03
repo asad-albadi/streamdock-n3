@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5 — 2026-06-03
+
+### Fixed
+
+- Move the root-pycache guard from `system_install.py` to the package's `__init__.py`, gated on `os.geteuid() == 0`. The previous placement was too late — by the time `system_install`'s body executed, Python had already compiled and emitted `streamdock_n3/__init__.pyc` as root, dropping root-owned files into the user's pipx venv. The next user-mode `pipx install --force` then failed with `Permission denied` on `__pycache__`. With the guard at package init, `sys.dont_write_bytecode` is set before any submodule .pyc gets emitted, so re-running the install one-liner now upgrades cleanly without manual `sudo rm`.
+
 ## 0.2.4 — 2026-06-03
 
 ### Fixed

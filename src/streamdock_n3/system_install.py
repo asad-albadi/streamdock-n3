@@ -7,18 +7,16 @@ under sudo where the user session is not available.
 
 from __future__ import annotations
 
+# The root-pycache guard lives in streamdock_n3/__init__.py — by the time
+# any submodule body runs, sibling __init__.pyc has already been emitted,
+# so the suppression must happen at package import.
+import argparse
+import os
+import shutil
+import subprocess
 import sys
-
-# Run-as-root would otherwise drop root-owned .pyc files into the user's
-# package directory, blocking later user-owned `uv tool install --force`.
-sys.dont_write_bytecode = True
-
-import argparse  # noqa: E402
-import os  # noqa: E402
-import shutil  # noqa: E402
-import subprocess  # noqa: E402
-from importlib import resources  # noqa: E402
-from pathlib import Path  # noqa: E402
+from importlib import resources
+from pathlib import Path
 
 UDEV_DST = Path("/etc/udev/rules.d/99-streamdock.rules")
 SERVICE_DST = Path("/usr/lib/systemd/user/streamdock-n3.service")
