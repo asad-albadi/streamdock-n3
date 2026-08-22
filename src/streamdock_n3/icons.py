@@ -18,9 +18,17 @@ FALLBACK_COLORS: list[tuple[int, int, int]] = [
 
 
 def parse_color(value: Any, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Parse a hex colour from the config, falling back on anything invalid.
+
+    Accepts both #rgb and #rrggbb. The GUI parses the same field with
+    Gdk.RGBA, which expands 3-digit shorthand, so rejecting it here would
+    render a key differently on the LCD than in the GUI's preview.
+    """
     if not isinstance(value, str):
         return fallback
     value = value.strip().lstrip("#")
+    if len(value) == 3:
+        value = "".join(ch * 2 for ch in value)
     if len(value) != 6:
         return fallback
     try:

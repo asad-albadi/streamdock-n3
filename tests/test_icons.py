@@ -11,9 +11,18 @@ def test_parse_color_without_hash():
     assert parse_color("1c63b8", (0, 0, 0)) == (28, 99, 184)
 
 
+def test_parse_color_three_digit_shorthand():
+    # Gdk.RGBA (used by the GUI preview) expands #rgb, so the daemon must too
+    # or a key renders differently on the LCD than in the preview.
+    assert parse_color("#123", (0, 0, 0)) == (17, 34, 51)
+    assert parse_color("fff", (0, 0, 0)) == (255, 255, 255)
+
+
 def test_parse_color_invalid_returns_fallback():
     assert parse_color("zzzzzz", (1, 2, 3)) == (1, 2, 3)
-    assert parse_color("#123", (1, 2, 3)) == (1, 2, 3)
+    assert parse_color("#12", (1, 2, 3)) == (1, 2, 3)
+    assert parse_color("#12345", (1, 2, 3)) == (1, 2, 3)
+    assert parse_color("zzz", (1, 2, 3)) == (1, 2, 3)
     assert parse_color(None, (1, 2, 3)) == (1, 2, 3)
     assert parse_color(42, (1, 2, 3)) == (1, 2, 3)
 
