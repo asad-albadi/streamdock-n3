@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import traceback
 from pathlib import Path
 from typing import Any
@@ -576,6 +577,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         self.config: dict[str, Any] = configmod.normalize(configmod.load())
         self._dirty = False
         self._toasts: list[Gtk.Revealer] = []
+        self._status_probe_running = False
 
         header = Gtk.HeaderBar()
         header.set_show_title_buttons(True)
@@ -1027,14 +1029,37 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         return True
 
     def _refresh_status(self) -> None:
-        present = device_present()
+        """Probe device and service state off the main thread.
+
+        service_active() shells out to systemctl with a 5 s timeout and
+        device_present() walks /sys; running either on the GTK main thread
+        freezes the window, and this is on a 3 s timer. One probe in flight at
+        a time, so a slow systemd cannot pile threads up.
+        """
+        if self._status_probe_running:
+            return
+        self._status_probe_running = True
+
+        def probe() -> None:
+            try:
+                present = device_present()
+                installed = service_installed()
+                active = service_active() if installed else False
+            except Exception:  # noqa: BLE001
+                log.exception("status probe failed")
+                present = installed = active = False
+            # Widgets may only be touched from the main thread.
+            GLib.idle_add(self._apply_status, present, installed, active)
+
+        threading.Thread(target=probe, daemon=True, name="status-probe").start()
+
+    def _apply_status(self, present: bool, installed: bool, active: bool) -> bool:
+        self._status_probe_running = False
         self.device_status.set_text("Connected" if present else "Not detected")
         self.device_dot.remove_css_class("status-ok")
         self.device_dot.remove_css_class("status-bad")
         self.device_dot.add_css_class("status-ok" if present else "status-bad")
 
-        installed = service_installed()
-        active = service_active() if installed else False
         if not installed:
             self.svc_status.set_text("Not installed")
         else:
@@ -1045,6 +1070,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         for btn in self.svc_buttons.values():
             btn.set_sensitive(installed)
         self.install_btn.set_visible(not installed)
+        return False  # one-shot idle callback
 
     def toast(self, text: str) -> None:
         rev = Gtk.Revealer()
