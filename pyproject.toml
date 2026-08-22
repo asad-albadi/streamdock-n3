@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Asad Al Badi", email = "asad.badi@vodafone.om" },
+    { name = "Asad Al Badi", email = "asad.badi@proton.me" },
 ]
 keywords = ["streamdock", "n3", "mirabox", "fhoou", "linux", "hid", "gtk4"]
 classifiers = [
