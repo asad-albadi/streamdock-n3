@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.4.0 — 2026-08-22
+
+### Changed
+
+- **The GUI now follows the desktop theme instead of overriding it.** It used to
+  install a complete stylesheet at `APPLICATION` priority (600), which outranks
+  the GTK theme (200), so every colour — window, headerbar, tabs, buttons,
+  entries, scales — was painted from a hardcoded palette. Colours were read from
+  Omarchy's `colors.toml`, and when that file was absent (any non-Omarchy
+  machine) all seven fell back to hardcoded Catppuccin values. The result ignored
+  the system light/dark preference, accent colour and font everywhere.
+
+  Colours now come from the platform: libadwaita or the active GTK theme, plus
+  any `@define-color` overrides in the user's `gtk-4.0/gtk.css`. Light/dark
+  tracks the XDG portal live. The hardcoded font family and point sizes are
+  gone, so the desktop font applies.
+
+  Mechanically, styling is split across two providers. A `FALLBACK` sheet
+  (priority 1) defines every colour name the app references, so a theme that
+  defines them wins and one that does not still renders correctly — necessary
+  because GTK resolves colours lazily and does **not** report an undefined name
+  as a parsing error. An `APPLICATION` sheet (600) carries only the semantic
+  classes no theme provides. Widgets the theme already draws are left alone.
+
+  `.accent` was replaced by the platform `.suggested-action` class, and `.card`
+  and `.linked` are now left to the theme, so all three are drawn natively.
+
+### Added
+
+- `theme` config key: `system` (default), `light`, `dark`, or `omarchy`. An
+  unrecognised value falls back to `system` rather than resurrecting the old
+  palette. `omarchy` restores the pre-0.4.0 behaviour, with `colors.toml`
+  installed above the theme where it can actually take effect.
+- Optional libadwaita support. When present it supplies the full named-colour
+  set and owns the colour scheme (`Adw.StyleManager`, which is also the only
+  supported way to force light/dark). When absent the app reads the portal over
+  D-Bus itself, syncs `gtk-application-prefer-dark-theme` so plain GTK's Adwaita
+  switches with it, and subscribes to the portal's `SettingChanged` signal so it
+  still tracks changes live.
+- `theme.py`, importable without `gi`, so CI covers the palette logic, the
+  Omarchy parser and the mode selection — including an assertion that no
+  stylesheet references a colour the fallback does not define.
+
+### Notes
+
+- Verified on this machine and in simulated end-user configurations: with and
+  without libadwaita, with and without a user `gtk.css`, with and without a
+  portal, and in each of the four theme modes.
+- `docs/screenshot-*.png` still show the old fixed palette and are now
+  unrepresentative.
+
 ## 0.3.2 — 2026-08-22
 
 ### Fixed
