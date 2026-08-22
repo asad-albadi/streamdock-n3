@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.1 — 2026-08-22
+
+### Fixed
+
+- `install.sh` no longer fails on every upgrade. `pipx install --force` aborted
+  with `A virtual environment already exists at: .` followed by `Not removing
+  existing venv ... because it was not created in this session`: pipx 1.15's uv
+  backend recreates the venv by calling `uv venv` without `--clear`, then
+  declines to remove a venv it did not create, so the two halves deadlock. The
+  installer now exports `UV_VENV_CLEAR=1` (ignored under the stdlib venv
+  backend) and falls back to an explicit uninstall-and-retry if `--force` still
+  fails. Fresh installs were unaffected; only re-running the one-liner broke,
+  which is exactly what 0.2.4 intended to make work.
+
 ## 0.3.0 — 2026-08-22
 
 Code-review pass over the whole tree. Two entries change runtime behaviour:
