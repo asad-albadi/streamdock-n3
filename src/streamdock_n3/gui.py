@@ -16,6 +16,7 @@ from typing import Any
 
 from streamdock_n3 import config as configmod
 from streamdock_n3 import paths
+from streamdock_n3 import theme as thememod
 
 paths.ensure_runtime_dirs()
 LOG_PATH = paths.gui_log_file()
@@ -41,6 +42,19 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
+# libadwaita is optional. When present it supplies the full named-colour set and
+# tracks the desktop's light/dark preference (including the XDG portal) for us.
+# When absent everything still works from theme.py's fallback palette, so this
+# stays a soft dependency rather than another install-time requirement.
+try:
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw  # noqa: E402
+
+    HAVE_ADW = True
+except (ImportError, ValueError):
+    Adw = None  # type: ignore[assignment]
+    HAVE_ADW = False
+
 SERVICE = "streamdock-n3.service"
 SERVICE_SYSTEM_PATH = Path("/usr/lib/systemd/user") / SERVICE
 SERVICE_USER_PATH = paths.systemd_user_dir() / SERVICE
@@ -59,17 +73,6 @@ ROUND_LABELS = {7: "Round button 1", 8: "Round button 2", 9: "Round button 3"}
 APP_ICON_DIR = paths.app_icon_dir()
 ICON_RENDER_SIZE = 144  # px, captured PNG side
 DEFAULT_KEY_COLOR = "#1c63b8"
-
-DEFAULT_PALETTE = {
-    "background": "#1e1e2e",
-    "foreground": "#cdd6f4",
-    "accent": "#89b4fa",
-    "color0": "#45475a",
-    "color1": "#f38ba8",
-    "color2": "#a6e3a1",
-    "color8": "#585b70",
-}
-
 
 # ----- system probes ------------------------------------------------------
 
@@ -212,180 +215,6 @@ def icon_path_for_app(app: Gio.AppInfo, size: int = ICON_RENDER_SIZE) -> str | N
         return source_path
 
 
-# ----- theme palette ------------------------------------------------------
-
-
-def parse_palette(path: Path) -> dict[str, str]:
-    palette = dict(DEFAULT_PALETTE)
-    if not path.exists():
-        return palette
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, _, v = line.partition("=")
-            k = k.strip()
-            v = v.strip().strip('"').strip("'")
-            if v.startswith("#") and len(v) in (4, 7):
-                palette[k] = v
-    except Exception:  # noqa: BLE001
-        pass
-    return palette
-
-
-def build_css(p: dict[str, str]) -> str:
-    bg = p.get("background", "#1e1e2e")
-    fg = p.get("foreground", "#cdd6f4")
-    accent = p.get("accent", "#89b4fa")
-    surface = p.get("color0", "#45475a")
-    surface_hi = p.get("color8", "#585b70")
-    err = p.get("color1", "#f38ba8")
-    ok = p.get("color2", "#a6e3a1")
-    return f"""
-window, .background {{
-    background-color: {bg};
-    color: {fg};
-    font-family: "JetBrainsMono Nerd Font", "JetBrains Mono", monospace;
-    font-size: 11pt;
-}}
-headerbar {{
-    background: {bg};
-    color: {fg};
-    border-bottom: 1px solid {surface};
-    padding: 4px 8px;
-    min-height: 36px;
-}}
-headerbar label.title {{
-    color: {fg};
-    font-weight: bold;
-}}
-notebook header {{
-    background: {bg};
-    border-bottom: 1px solid {surface};
-}}
-notebook header tab {{
-    background: transparent;
-    color: {fg};
-    padding: 8px 18px;
-    border: none;
-    border-bottom: 2px solid transparent;
-}}
-notebook header tab:checked {{
-    color: {accent};
-    border-bottom: 2px solid {accent};
-}}
-notebook header tab:hover {{
-    color: {accent};
-}}
-.card {{
-    background: {surface};
-    border-radius: 8px;
-    padding: 12px 14px;
-    margin: 6px 0;
-}}
-.section-title {{
-    color: {accent};
-    font-weight: bold;
-    margin: 12px 4px 4px 4px;
-}}
-.dim {{
-    color: {surface_hi};
-    font-size: 9pt;
-}}
-.status-ok {{ color: {ok}; font-weight: bold; }}
-.status-bad {{ color: {err}; font-weight: bold; }}
-.status-dot {{ font-size: 14pt; }}
-entry, spinbutton {{
-    background: {bg};
-    color: {fg};
-    border: 1px solid {surface_hi};
-    border-radius: 6px;
-    padding: 6px 8px;
-    caret-color: {accent};
-}}
-entry:focus, spinbutton:focus {{
-    border-color: {accent};
-    outline: none;
-}}
-button {{
-    background: {surface};
-    color: {fg};
-    border: 1px solid {surface_hi};
-    border-radius: 6px;
-    padding: 6px 12px;
-}}
-button:hover {{
-    background: {surface_hi};
-}}
-button.accent {{
-    background: {accent};
-    color: {bg};
-    border: 1px solid {accent};
-    font-weight: bold;
-}}
-button.accent:hover {{
-    background: shade({accent}, 1.1);
-}}
-button:disabled {{
-    opacity: 0.45;
-}}
-scale trough {{
-    background: {surface};
-    border-radius: 4px;
-    min-height: 6px;
-}}
-scale highlight {{
-    background: {accent};
-    border-radius: 4px;
-}}
-scale slider {{
-    background: {accent};
-    border: none;
-    border-radius: 50%;
-}}
-scrolledwindow {{ background: {bg}; }}
-toast {{
-    background: {surface};
-    color: {fg};
-    border: 1px solid {accent};
-    border-radius: 6px;
-    padding: 8px 12px;
-}}
-label.key-pill {{
-    background: {surface};
-    color: {fg};
-    border-radius: 4px;
-    padding: 2px 8px;
-    font-weight: bold;
-}}
-box.linked > button {{
-    border-radius: 0;
-    margin: 0;
-    border-right-width: 0;
-}}
-box.linked > button:first-child {{
-    border-top-left-radius: 6px;
-    border-bottom-left-radius: 6px;
-}}
-box.linked > button:last-child {{
-    border-top-right-radius: 6px;
-    border-bottom-right-radius: 6px;
-    border-right-width: 1px;
-}}
-box.linked > button:checked {{
-    background: {accent};
-    color: {bg};
-    border-color: {accent};
-}}
-frame {{
-    background: {bg};
-    border: 1px solid {surface_hi};
-    border-radius: 6px;
-}}
-"""
-
-
 # ----- helpers ------------------------------------------------------------
 
 
@@ -493,7 +322,7 @@ class AppPickerDialog(Gtk.Window):
         cancel = Gtk.Button(label="Cancel")
         cancel.connect("clicked", lambda *_: self.close())
         self.select_btn = Gtk.Button(label="Select")
-        self.select_btn.add_css_class("accent")
+        self.select_btn.add_css_class("suggested-action")
         self.select_btn.connect("clicked", self._on_select)
         btns.append(cancel)
         btns.append(self.select_btn)
@@ -582,7 +411,6 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         header = Gtk.HeaderBar()
         header.set_show_title_buttons(True)
         title = Gtk.Label(label="Stream Dock N3")
-        title.add_css_class("title")
         header.set_title_widget(title)
 
         self.reload_btn = Gtk.Button(label="Reload")
@@ -591,7 +419,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         header.pack_start(self.reload_btn)
 
         self.save_btn = Gtk.Button(label="Save")
-        self.save_btn.add_css_class("accent")
+        self.save_btn.add_css_class("suggested-action")
         self.save_btn.set_sensitive(False)
         self.save_btn.connect("clicked", self.on_save)
         header.pack_end(self.save_btn)
@@ -671,7 +499,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             self.svc_buttons[action] = b
 
         self.install_btn = Gtk.Button(label="Install service")
-        self.install_btn.add_css_class("accent")
+        self.install_btn.add_css_class("suggested-action")
         self.install_btn.connect("clicked", self.on_install_service)
         self.svc_btn_box.append(self.install_btn)
 
@@ -1171,11 +999,42 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
 
 class ThemeLoader:
-    def __init__(self) -> None:
-        self.provider = Gtk.CssProvider()
-        self.apply()
+    """Installs two style providers and keeps them in step with the desktop.
+
+    The fallback provider (priority 1) only guarantees every colour name is
+    defined; libadwaita, the active GTK theme and the user's gtk.css all sit
+    above it and win. The app provider (priority 600) carries only the classes
+    no theme defines. Nothing here paints a window, button or entry -- those
+    come from the theme, which is the point.
+    """
+
+    def __init__(self, mode: str = "system") -> None:
+        self.mode = mode
+        self.fallback_provider = Gtk.CssProvider()
+        self.app_provider = Gtk.CssProvider()
+        self._installed = False
+        self._style_manager = None
         self._monitor: Gio.FileMonitor | None = None
-        if OMARCHY_THEME.exists():
+
+        if HAVE_ADW:
+            # Always go through StyleManager when libadwaita is present: it is
+            # the supported way to both read and force the colour scheme, and
+            # touching GtkSettings:gtk-application-prefer-dark-theme alongside
+            # libadwaita is explicitly unsupported (it logs a warning).
+            self._style_manager = Adw.StyleManager.get_default()
+            self._style_manager.set_color_scheme(self._adw_color_scheme())
+            self._style_manager.connect("notify::dark", self._on_changed)
+        else:
+            settings = Gtk.Settings.get_default()
+            if settings is not None:
+                settings.connect(
+                    "notify::gtk-application-prefer-dark-theme", self._on_changed
+                )
+            # Without libadwaita nothing consumes the portal, so also listen for
+            # the desktop toggling light/dark while we run.
+            self._subscribe_portal_changes()
+
+        if mode == "omarchy" and OMARCHY_THEME.exists():
             gfile = Gio.File.new_for_path(str(OMARCHY_THEME))
             try:
                 self._monitor = gfile.monitor_file(Gio.FileMonitorFlags.NONE, None)
@@ -1183,15 +1042,132 @@ class ThemeLoader:
             except Exception:  # noqa: BLE001
                 self._monitor = None
 
-    def apply(self) -> None:
-        palette = parse_palette(OMARCHY_THEME)
-        css = build_css(palette)
-        self.provider.load_from_string(css)
-        display = Gdk.Display.get_default()
-        if display is not None:
-            Gtk.StyleContext.add_provider_for_display(
-                display, self.provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        self.apply()
+
+    def _adw_color_scheme(self) -> Any:
+        """Map our mode onto libadwaita's colour scheme.
+
+        DEFAULT is what follows the desktop (and the XDG portal); the FORCE_*
+        values are the only way to actually override it, since a theme sits
+        above our fallback palette in the cascade and would otherwise win.
+        """
+        if self.mode == "light":
+            return Adw.ColorScheme.FORCE_LIGHT
+        if self.mode == "dark":
+            return Adw.ColorScheme.FORCE_DARK
+        return Adw.ColorScheme.DEFAULT
+
+    def prefers_dark(self) -> bool:
+        """Best available answer, in decreasing order of authority."""
+        if self._style_manager is not None:
+            # Already reflects a forced scheme, so this covers every mode.
+            return bool(self._style_manager.get_dark())
+        if self.mode == "dark":
+            return True
+        if self.mode == "light":
+            return False
+        portal = self._portal_color_scheme()
+        if portal is not None:
+            return portal == 1  # 1 = prefer-dark, 2 = prefer-light
+        settings = Gtk.Settings.get_default()
+        if settings is not None:
+            return bool(settings.get_property("gtk-application-prefer-dark-theme"))
+        return False
+
+    @staticmethod
+    def _portal_color_scheme() -> int | None:
+        """Read org.freedesktop.appearance colour-scheme over D-Bus.
+
+        Only reached when libadwaita is missing -- it already does this. Worth
+        the few lines because without it a bare GTK4 setup on GNOME or KDE would
+        ignore a dark-mode preference the desktop is publishing.
+        """
+        try:
+            proxy = Gio.DBusProxy.new_for_bus_sync(
+                Gio.BusType.SESSION,
+                Gio.DBusProxyFlags.NONE,
+                None,
+                "org.freedesktop.portal.Desktop",
+                "/org/freedesktop/portal/desktop",
+                "org.freedesktop.portal.Settings",
+                None,
             )
+            result = proxy.call_sync(
+                "ReadOne",
+                GLib.Variant("(ss)", ("org.freedesktop.appearance", "color-scheme")),
+                Gio.DBusCallFlags.NONE,
+                500,
+                None,
+            )
+            return int(result.unpack()[0])
+        except Exception:  # noqa: BLE001
+            # No portal, older portal without ReadOne, or no session bus.
+            return None
+
+    def _overrides(self) -> dict[str, str]:
+        if self.mode != "omarchy" or not OMARCHY_THEME.exists():
+            return {}
+        try:
+            text = OMARCHY_THEME.read_text(encoding="utf-8")
+        except OSError as exc:
+            log.warning("cannot read %s: %s", OMARCHY_THEME, exc)
+            return {}
+        return thememod.parse_omarchy_palette(text)
+
+    def _sync_gtk_dark_setting(self, dark: bool) -> None:
+        """Tell plain GTK which scheme to use.
+
+        Only for the no-libadwaita path. GTK's built-in Adwaita sits at THEME
+        priority, above our fallback palette, and does not read the portal
+        itself -- so detecting "prefer dark" is not enough, GTK has to be told
+        or it keeps rendering light over our dark definitions. Guarded against
+        re-entry: this fires notify::, which lands back in _on_changed.
+        """
+        settings = Gtk.Settings.get_default()
+        if settings is None:
+            return
+        if bool(settings.get_property("gtk-application-prefer-dark-theme")) != dark:
+            settings.set_property("gtk-application-prefer-dark-theme", dark)
+
+    def _subscribe_portal_changes(self) -> None:
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            bus.signal_subscribe(
+                "org.freedesktop.portal.Desktop",
+                "org.freedesktop.portal.Settings",
+                "SettingChanged",
+                "/org/freedesktop/portal/desktop",
+                "org.freedesktop.appearance",
+                Gio.DBusSignalFlags.NONE,
+                lambda *_a: self._on_changed(),
+            )
+        except Exception:  # noqa: BLE001
+            log.info("no portal appearance signal; light/dark will not track live")
+
+    def apply(self) -> None:
+        dark = self.prefers_dark()
+        if self._style_manager is None:
+            self._sync_gtk_dark_setting(dark)
+        overrides = self._overrides()
+        # Defaults go underneath everything; explicit overrides go on top of the
+        # theme, which is the only place they can actually take effect.
+        self.fallback_provider.load_from_string(
+            thememod.build_fallback_css(thememod.fallback_palette(dark=dark))
+        )
+        self.app_provider.load_from_string(thememod.build_app_css(overrides))
+        log.info("theme: mode=%s dark=%s adw=%s", self.mode, dark, HAVE_ADW)
+
+        display = Gdk.Display.get_default()
+        if display is None or self._installed:
+            return
+        # Providers are registered once; reloading their CSS restyles live.
+        Gtk.StyleContext.add_provider_for_display(
+            display, self.fallback_provider, Gtk.STYLE_PROVIDER_PRIORITY_FALLBACK
+        )
+        Gtk.StyleContext.add_provider_for_display(
+            display, self.app_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        self._installed = True
 
     def _on_changed(self, *_args: Any) -> None:
         GLib.timeout_add(150, lambda: (self.apply(), False)[1])
@@ -1200,15 +1176,25 @@ class ThemeLoader:
 # ----- application --------------------------------------------------------
 
 
-class StreamDockApp(Gtk.Application):
+# Subclassing Adw.Application is what initialises libadwaita and its named
+# colours; without it the Adw stylesheet is never loaded.
+_AppBase = Adw.Application if HAVE_ADW else Gtk.Application
+
+
+class StreamDockApp(_AppBase):  # type: ignore[misc,valid-type]
     def __init__(self, initial_tab: int = 0) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.theme: ThemeLoader | None = None
         self.initial_tab = initial_tab
 
     def do_startup(self) -> None:  # type: ignore[override]
-        Gtk.Application.do_startup(self)
-        self.theme = ThemeLoader()
+        _AppBase.do_startup(self)
+        try:
+            mode = thememod.theme_mode(configmod.load())
+        except Exception:  # noqa: BLE001
+            log.exception("could not read theme mode; using system")
+            mode = "system"
+        self.theme = ThemeLoader(mode)
 
     def do_activate(self) -> None:  # type: ignore[override]
         win = self.props.active_window or StreamDockWindow(self, self.initial_tab)

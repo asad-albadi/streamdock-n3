@@ -28,6 +28,7 @@ Unplug and replug the dock once so the new udev rules apply.
 - Linux (tested on Arch / Omarchy).
 - Python 3.11+, `pipx` (or `pip --user`).
 - For the GUI: distro-provided GTK 4 + `python-gobject`. On Arch: `pacman -S gtk4 python-gobject`.
+- Optional, for the best theme integration: `libadwaita`.
 
 ### Variations
 
@@ -118,7 +119,37 @@ streamdock-n3-install  Install udev rule, systemd user unit, desktop entry
 - **Keys** has one card per LCD key. Each key is either **Label** mode (text + background color) or **Image** mode (custom image path, center-cropped to square). **Pick app…** scans `.desktop` files and assigns the chosen app's icon + `Exec` command in one step.
 - **Actions** edits the three round-button and three-knob (left / right / press) command mappings.
 
-The GUI re-styles itself from `~/.config/omarchy/current/theme/colors.toml` and watches it with `Gio.FileMonitor` so theme switches apply live.
+### Theming
+
+The GUI follows your desktop theme. Colours come from the platform — libadwaita
+or your active GTK theme, plus any `@define-color` overrides in
+`~/.config/gtk-4.0/gtk.css` — and it tracks the desktop's light/dark preference
+live via the XDG portal. The system font is used as-is.
+
+Set `theme` in the config to change that:
+
+```text
+system   (default) follow the desktop: its colours, light/dark, accent, font.
+light    Force light regardless of the desktop preference.
+dark     Force dark regardless of the desktop preference.
+omarchy  Take colours from ~/.config/omarchy/current/theme/colors.toml,
+         watched live, overriding the GTK theme. This was the behaviour
+         before 0.4.0.
+```
+
+Notes:
+
+- `libadwaita` is optional but recommended; without it the app falls back to a
+  built-in light/dark palette and reads the portal directly. Nothing breaks
+  either way. On Arch: `pacman -S libadwaita`.
+- `~/.config/gtk-4.0/gtk.css` outranks everything the app sets, including
+  `light` and `dark`. That is deliberate — it is your explicit configuration —
+  but it means a gtk.css that hardcodes dark colours will keep them under
+  `"theme": "light"`.
+- If `settings.ini` sets `gtk-application-prefer-dark-theme`, libadwaita logs
+  `Using GtkSettings:gtk-application-prefer-dark-theme with libadwaita is
+  unsupported`. That warning comes from your GTK config, not from this app —
+  every libadwaita app emits it. Removing the line is safe; the portal covers it.
 
 `streamdock-n3-gui --tab N` (0, 1, 2) opens directly on Status / Keys / Actions. Logs go to `$XDG_STATE_HOME/streamdock-n3/gui.log`.
 
@@ -130,6 +161,7 @@ Config lives at `$XDG_CONFIG_HOME/streamdock-n3/config.json` (typically `~/.conf
 {
   "brightness": 80,
   "grab_evdev": true,
+  "theme": "system",
   "keys": {
     "1": { "label": "Term", "color": "#1c63b8" }
   },
@@ -255,6 +287,7 @@ src/streamdock_n3/
   events.py          Event name mapping.
   icons.py           Generated LCD icons + color parsing.
   paths.py           XDG path helpers.
+  theme.py           System-theme-driven styling (pure; no gi import).
   shutdown.py        Hard-exit helper (skips the SDK's unsafe close path).
   _data/             Packaged udev rule, systemd unit, desktop entry, default config.
   _vendor/StreamDock/  Vendored official SDK + native transport.
