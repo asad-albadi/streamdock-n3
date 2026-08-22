@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import os
+import select
 import signal
 import subprocess
 import threading
@@ -130,13 +131,20 @@ def is_streamdock_evdev(path: str) -> bool:
         dev = InputDevice(path)
     except OSError:
         return False
-    info = dev.info
-    name = (dev.name or "").lower()
-    return (
-        (info.vendor == int(VID, 16) and info.product == int(PID, 16))
-        or "hotspotekusb" in name
-        or "streamdock" in name
-    )
+    # Probing runs over every /dev/input/event* on the system, twice at
+    # startup; without the close() each probe leaks an fd for the life of
+    # the process.
+    try:
+        info = dev.info
+        name = (dev.name or "").lower()
+        return (
+            (info.vendor == int(VID, 16) and info.product == int(PID, 16))
+            or "hotspotekusb" in name
+            or "streamdock" in name
+        )
+    finally:
+        with contextlib.suppress(OSError):
+            dev.close()
 
 
 def streamdock_evdev_paths() -> list[Path]:
@@ -175,7 +183,42 @@ def warn_if_evdev_unreadable() -> None:
     _warn_unreadable("input event", streamdock_evdev_paths())
 
 
-def evdev_worker(stop: threading.Event, actions: dict[str, Any], dry_run: bool) -> None:
+def _dispatch_evdev(dev, actions: dict[str, Any], dry_run: bool) -> None:
+    for event in dev.read():
+        if event.type != ecodes.EV_KEY:
+            continue
+        key = categorize(event)
+        keycodes = key.keycode if isinstance(key.keycode, list) else [key.keycode]
+        for keycode in keycodes:
+            mapped = evdev_event_key(str(keycode), event.value)
+            print(f"evdev {keycode} value={event.value} [{mapped}]", flush=True)
+            run_actions(actions.get(mapped), dry_run=dry_run)
+
+
+def wants_evdev_grab(actions: dict[str, Any], config: dict[str, Any]) -> bool:
+    """Whether to take the dock's input nodes exclusively (EVIOCGRAB).
+
+    Without a grab, a dock keypress reaches both the compositor — which
+    applies its own volume/media binding — and this daemon, so a mapped
+    `evdev.*` action fires on top of it and the change lands twice. Grabbing
+    makes the daemon the only consumer.
+
+    Only grab when the config actually maps an `evdev.*` event: otherwise the
+    daemon has no use for those keycodes and swallowing them would break
+    bindings the compositor was handling perfectly well. `"grab_evdev": false`
+    opts out entirely.
+    """
+    if not config.get("grab_evdev", True):
+        return False
+    return any(str(name).startswith("evdev.") for name in actions)
+
+
+def evdev_worker(
+    stop: threading.Event,
+    actions: dict[str, Any],
+    dry_run: bool,
+    grab: bool = False,
+) -> None:
     if InputDevice is None:
         return
 
@@ -185,27 +228,56 @@ def evdev_worker(stop: threading.Event, actions: dict[str, Any], dry_run: bool) 
             dev = InputDevice(str(path))
             os.set_blocking(dev.fileno(), False)
             devices.append(dev)
-            print(f"evdev listening: {path} {dev.name!r}", flush=True)
+            grabbed = ""
+            if grab:
+                try:
+                    dev.grab()
+                    grabbed = " (grabbed)"
+                except OSError as exc:
+                    # EBUSY means something else holds it; reading unexclusively
+                    # is still better than not reading at all.
+                    print(f"evdev cannot grab {path}: {exc}", flush=True)
+            print(f"evdev listening: {path} {dev.name!r}{grabbed}", flush=True)
         except OSError as exc:
             print(f"evdev cannot open {path}: {exc}", flush=True)
 
-    while not stop.is_set():
-        for dev in devices:
+    def release(dev) -> None:
+        if grab:
+            with contextlib.suppress(OSError):
+                dev.ungrab()
+        with contextlib.suppress(OSError):
+            dev.close()
+
+    def drop(dev, reason: str) -> None:
+        print(f"evdev dropping {dev.path}: {reason}", flush=True)
+        if dev in devices:
+            devices.remove(dev)
+        release(dev)
+
+    try:
+        # select() rather than a sleep-poll: it wakes on the actual event and
+        # bounds the shutdown latency without burning 50 wakeups a second.
+        while not stop.is_set() and devices:
             try:
-                for event in dev.read():
-                    if event.type != ecodes.EV_KEY:
-                        continue
-                    key = categorize(event)
-                    keycodes = key.keycode if isinstance(key.keycode, list) else [key.keycode]
-                    for keycode in keycodes:
-                        mapped = evdev_event_key(str(keycode), event.value)
-                        print(f"evdev {keycode} value={event.value} [{mapped}]", flush=True)
-                        run_actions(actions.get(mapped), dry_run=dry_run)
-            except BlockingIOError:
-                pass
+                ready, _, _ = select.select(devices, [], [], 0.2)
             except OSError as exc:
-                print(f"evdev read error on {dev.path}: {exc}", flush=True)
-        time.sleep(0.02)
+                print(f"evdev select error: {exc}", flush=True)
+                break
+            for dev in ready:
+                try:
+                    _dispatch_evdev(dev, actions, dry_run)
+                except BlockingIOError:
+                    pass
+                except OSError as exc:
+                    # A device that errors once (unplug -> ENODEV) errors on
+                    # every later pass. Retrying it would flood the journal
+                    # for as long as the daemon runs, so retire it instead.
+                    drop(dev, str(exc))
+        if not devices:
+            print("evdev: no devices left to read", flush=True)
+    finally:
+        for dev in list(devices):
+            release(dev)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -216,6 +288,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-icons", action="store_true")
     parser.add_argument("--no-init", action="store_true")
     parser.add_argument("--seconds", type=float, default=0)
+    parser.add_argument(
+        "--no-grab",
+        action="store_true",
+        help="Do not take the dock's input nodes exclusively, even when "
+        "evdev.* actions are configured. Media keys may then apply twice.",
+    )
     args = parser.parse_args(argv)
 
     paths.ensure_runtime_dirs()
@@ -262,9 +340,10 @@ def main(argv: list[str] | None = None) -> int:
         if not args.no_icons:
             apply_icons(device, config)
         device.set_key_callback(on_input)
+        grab = wants_evdev_grab(actions, config) and not args.no_grab
         evdev_thread = threading.Thread(
             target=evdev_worker,
-            args=(stop_event, actions, args.dry_run),
+            args=(stop_event, actions, args.dry_run, grab),
             daemon=True,
         )
         evdev_thread.start()

@@ -30,13 +30,20 @@ def is_streamdock_evdev(path: str) -> bool:
         dev = InputDevice(path)
     except OSError:
         return False
-    info = dev.info
-    name = (dev.name or "").lower()
-    return (
-        (info.vendor == int(VID, 16) and info.product == int(PID, 16))
-        or "hotspotekusb" in name
-        or "streamdock" in name
-    )
+    # Probing runs over every /dev/input/event* on the system, twice at
+    # startup; without the close() each probe leaks an fd for the life of
+    # the process.
+    try:
+        info = dev.info
+        name = (dev.name or "").lower()
+        return (
+            (info.vendor == int(VID, 16) and info.product == int(PID, 16))
+            or "hotspotekusb" in name
+            or "streamdock" in name
+        )
+    finally:
+        with contextlib.suppress(OSError):
+            dev.close()
 
 
 def streamdock_evdev_paths() -> list[Path]:

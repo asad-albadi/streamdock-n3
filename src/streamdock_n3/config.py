@@ -13,6 +13,7 @@ from streamdock_n3 import paths
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "brightness": 80,
+    "grab_evdev": True,
     "keys": {
         "1": {"label": "Term", "color": "#1c63b8"},
         "2": {"label": "Web", "color": "#188452"},

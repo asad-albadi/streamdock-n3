@@ -1,5 +1,6 @@
 {
   "brightness": 80,
+  "grab_evdev": true,
   "keys": {
     "1": { "label": "Term", "color": "#1c63b8" },
     "2": { "label": "Web", "color": "#188452" },
