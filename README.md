@@ -105,6 +105,7 @@ streamdock-n3-install  Install udev rule, systemd user unit, desktop entry
 --no-icons          Do not update LCD key images.
 --no-init           Skip SDK initialization.
 --seconds N         Exit after N seconds; useful for tests.
+--no-grab           Do not take the dock's input nodes exclusively.
 ```
 
 ## GUI
@@ -128,6 +129,7 @@ Config lives at `$XDG_CONFIG_HOME/streamdock-n3/config.json` (typically `~/.conf
 ```json
 {
   "brightness": 80,
+  "grab_evdev": true,
   "keys": {
     "1": { "label": "Term", "color": "#1c63b8" }
   },
@@ -141,11 +143,25 @@ Key fields:
 
 ```text
 label    Text rendered into a generated LCD icon.
-color    Hex background color for the generated icon.
+color    Hex background color for the generated icon. #rgb or #rrggbb.
 icon     Optional custom image path. If present and valid, it is used instead.
 ```
 
-Actions are mapped by event name to a shell command string or list of strings.
+Actions are mapped by event name to a shell command string, a list of
+commands (each launched independently), or a `{"command": "..."}` object.
+
+`grab_evdev` (default `true`) makes the daemon the exclusive reader of the
+dock's `/dev/input/event*` nodes when — and only when — the config maps at
+least one `evdev.*` event. Without it the compositor also acts on the dock's
+media keycodes, so a mapped action applies the change a second time (a volume
+detent moves 10% instead of 5%). Set it to `false`, or pass `--no-grab`, to
+let the compositor keep those keys.
+
+Generated label tiles are cached under `$XDG_CACHE_HOME/streamdock-n3/keys/`
+and are safe to delete. Application icons chosen with **Pick app…** are
+written to `$XDG_STATE_HOME/streamdock-n3/icons/`, because their paths are
+recorded in the config and a cache cleaner would otherwise silently revert
+those keys to label tiles.
 
 ## Event Names
 
@@ -239,6 +255,7 @@ src/streamdock_n3/
   events.py          Event name mapping.
   icons.py           Generated LCD icons + color parsing.
   paths.py           XDG path helpers.
+  shutdown.py        Hard-exit helper (skips the SDK's unsafe close path).
   _data/             Packaged udev rule, systemd unit, desktop entry, default config.
   _vendor/StreamDock/  Vendored official SDK + native transport.
 
@@ -254,4 +271,6 @@ install.sh           One-shot end-user installer.
 - Profiles, folders, and macro editing are not implemented.
 - Actions are shell commands in JSON.
 - Knob event names may vary by firmware mode — use `streamdock-n3-debug` to confirm.
+- Whether the dock also emits media keycodes to the compositor depends on the
+  firmware mode; `grab_evdev` exists for the modes where it does.
 - The vendored SDK is bundled because the upstream pip package did not include the Linux native transport in this environment.

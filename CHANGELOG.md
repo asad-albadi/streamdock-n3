@@ -1,5 +1,99 @@
 # Changelog
 
+## 0.3.0 — 2026-08-22
+
+Code-review pass over the whole tree. Two entries change runtime behaviour:
+exit codes (see the first Fixed item) and evdev grabbing (see Added).
+
+### Fixed
+
+- The daemon no longer loses the reason it died. `os._exit()` ran in a `finally`
+  while an exception was still propagating, so nothing printed the traceback and
+  `os._exit` skipped Python's buffer flush — under systemd, a failed start showed
+  as a bare `status=1/FAILURE` with an empty journal. Failures inside the guarded
+  region now print a traceback, and both streams are flushed before exit. Device
+  acquisition moved inside that region too, since `DeviceManager.enumerate()`
+  builds SDK objects whose `__del__` reaches the unsafe close path.
+- A timed daemon run (`--seconds N`) now exits **0**. It previously exited 1
+  because the loop ended with the signal flag still clear, so a successful run
+  looked like a failure to systemd and to CI.
+- The evdev reader retires a device that fails instead of retrying it forever.
+  Unplugging the dock made every pass raise `ENODEV`, printing an error ~50 times
+  a second for as long as the daemon ran. The loop also moved from a 20 ms
+  sleep-poll to `select()`, and now closes its devices on the way out.
+- `streamdock-n3-probe` and `streamdock-n3-debug` no longer call `device.close()`
+  — the call `daemon.py` documents as tripping libtransport's broken thread
+  cleanup. It also ran when `device.open()` had already failed, closing a
+  transport that was never opened. Both entry points now use the shared
+  `shutdown.hard_exit`, and probe reports failures with a traceback and exit 1.
+- Probing `/dev/input/event*` no longer leaks a file descriptor per node. Every
+  candidate was opened and never closed, twice per startup, and held for the
+  process lifetime.
+- The GUI stops corrupting list and dict actions. `_action_str` joined lists with
+  `" && "` and the programmatic `set_text` in Reload fed that back through the
+  `changed` handler, silently rewriting independent commands as one shell chain;
+  a `[{"command": ...}]` action raised `TypeError` during window construction, so
+  the GUI would not open at all. Rendering is now total, lists join with `"; "`,
+  and an unedited value is never written back.
+- The GUI tolerates the same malformed config the daemon does. A missing `keys`
+  object made Reload raise `KeyError` mid-loop — leaving stale widgets, a stuck
+  Save button and no toast — and a non-dict key entry crashed startup. Shape
+  coercion now lives in `config.normalize()`, shared by the daemon and the GUI.
+- `parse_hex` no longer raises on a non-string colour and no longer ignores
+  `Gdk.RGBA.parse`'s result, which silently rendered invalid colours as black and
+  persisted `#000000` on the next edit.
+- `icons.parse_color` accepts `#rgb` shorthand, which `Gdk.RGBA` already
+  expanded. A key with a 3-digit colour rendered differently on the LCD than in
+  the GUI preview.
+- The status panel no longer blocks the GTK main thread. It ran `systemctl` with
+  a 5 s timeout plus a `/sys` walk on a 3 s timer, freezing the window whenever
+  systemd was slow; probes now run on a worker thread, one at a time, and apply
+  through `GLib.idle_add`.
+- Packaged data files are read through the `importlib.resources` Traversable
+  instead of a path escaping its `as_file` context. Under a non-directory loader
+  that temp file is unlinked before the caller opens it, which would have broken
+  `ensure_config` and the whole `sudo streamdock-n3-install` step.
+- `SERVICE_USER_PATH` honours `XDG_CONFIG_HOME` via the new
+  `paths.systemd_user_dir()`. With that variable set elsewhere the GUI reported a
+  running service as "Not installed" and disabled its own Start/Restart/Stop.
+- `install.sh --version` with no tag prints usage and exits 2 instead of dying on
+  `$2: unbound variable` under `set -u`. Added `-h`/`--help`.
+
+### Added
+
+- `grab_evdev` config key (default `true`) and a `--no-grab` flag. The daemon now
+  takes the dock's input nodes exclusively (`EVIOCGRAB`) — but only when the
+  config maps at least one `evdev.*` event, so it never swallows keycodes it has
+  no use for. Without this the compositor and the daemon both acted on the dock's
+  media keys, applying each change twice. The grab is released on shutdown and on
+  the device-drop path, and a failed grab downgrades to unexclusive reading.
+- `shutdown.hard_exit()`: one documented place for the flush-and-`os._exit`
+  teardown that three entry points need, replacing the comment that lived in
+  `daemon.py` alone.
+- `config.normalize()` and `paths.systemd_user_dir()` / `paths.app_icon_dir()`.
+- Tests: the evdev drop/grab/close paths, action rendering, config
+  normalisation, XDG path resolution, and the packaged-resource loaders.
+  30 tests to 48.
+
+### Changed
+
+- Application icons picked in the GUI are written to
+  `$XDG_STATE_HOME/streamdock-n3/icons/` rather than the cache directory. Their
+  paths are recorded in the config, so a cache cleaner silently reverted those
+  keys to generated label tiles. Existing configs keep working; icons picked
+  before this release stay where they are until re-picked.
+  `paths.icon_cache_dir()` is gone, replaced by `paths.app_icon_dir()`.
+
+### Notes
+
+- The double-application of media keys that `grab_evdev` addresses depends on the
+  firmware mode putting the dock's keycodes on its HID keyboard interface. It was
+  reasoned from the shipped default mappings, not reproduced on hardware.
+- The probe abort this release guards against was not reproducible with
+  `--no-init --no-icons` on an N3 running 0.2.5; the change rests on probe having
+  called the teardown the daemon documents as unsafe, and on the abort recorded
+  empirically in 0.2.3 for the full-init path.
+
 ## 0.2.5 — 2026-06-03
 
 ### Fixed
