@@ -77,7 +77,16 @@ EOF
     exit 1
 fi
 
-PY_INSTALL=(pipx install --force --system-site-packages)
+# pipx 1.15 with the uv backend recreates the venv on --force by running
+# `uv venv` without --clear, then declines to remove a venv it did not create
+# itself, so `pipx install --force` fails outright on every upgrade:
+#
+#   error: Failed to create virtual environment
+#     Caused by: A virtual environment already exists at: .
+#
+# Telling uv to clear is enough. The variable is simply ignored when pipx uses
+# the stdlib venv backend, so it is safe to export unconditionally.
+export UV_VENV_CLEAR=1
 
 # Resolve the wheel URL.
 if [ "$VERSION" = "latest" ]; then
@@ -101,7 +110,15 @@ print(wheels[0])
 )
 
 echo "installing wheel: $WHEEL_URL"
-"${PY_INSTALL[@]}" "$WHEEL_URL"
+if ! pipx install --force --system-site-packages "$WHEEL_URL"; then
+    # Last resort for pipx/uv combinations that still refuse to reuse the venv.
+    # This one briefly leaves nothing installed, which is why it only runs
+    # after --force has already failed rather than being the default path.
+    echo >&2
+    echo "pipx install --force failed; removing the existing venv and retrying." >&2
+    pipx uninstall streamdock-n3-linux >/dev/null 2>&1 || true
+    pipx install --system-site-packages "$WHEEL_URL"
+fi
 
 if [ "$DO_SYSTEM" -eq 1 ]; then
     if ! command -v streamdock-n3-install >/dev/null 2>&1; then
