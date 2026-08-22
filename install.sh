@@ -15,11 +15,29 @@ REPO="asad-albadi/streamdock-n3"
 VERSION="latest"
 DO_SYSTEM=1
 
+usage() {
+    cat <<'EOF' >&2
+usage: install.sh [--version vX.Y.Z] [--no-system]
+
+  --version vX.Y.Z   pin to a specific release tag (default: latest)
+  --no-system        skip the sudo step that installs udev/service/desktop
+EOF
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
-        --version) VERSION="$2"; shift 2 ;;
+        --version)
+            # Guard before dereferencing $2: `set -u` would otherwise abort
+            # with "$2: unbound variable" instead of a usable message.
+            if [ $# -lt 2 ]; then
+                echo "error: --version requires a release tag, e.g. --version v0.2.0" >&2
+                usage
+                exit 2
+            fi
+            VERSION="$2"; shift 2 ;;
         --no-system) DO_SYSTEM=0; shift ;;
-        *) echo "unknown flag: $1" >&2; exit 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "unknown flag: $1" >&2; usage; exit 2 ;;
     esac
 done
 
