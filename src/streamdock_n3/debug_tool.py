@@ -10,10 +10,12 @@ import select
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from evdev import InputDevice, categorize, ecodes, list_devices  # type: ignore
 
 from streamdock_n3._vendor.StreamDock.DeviceManager import DeviceManager
+from streamdock_n3.shutdown import hard_exit
 
 VID = "6603"
 PID = "1003"
@@ -134,6 +136,13 @@ def hidraw_worker(stop: threading.Event) -> None:
             os.close(fd)
 
 
+# Devices opened by sdk_worker are parked here so they outlive the worker
+# thread. StreamDock.__del__ calls close(), which is the libtransport abort
+# path (see shutdown.hard_exit); keeping a reference means the collector never
+# reaches it and the process hard-exits with the handle still open instead.
+_OPEN_DEVICES: list[Any] = []
+
+
 def sdk_worker(stop: threading.Event, init: bool) -> None:
     manager = DeviceManager()
     devices = manager.enumerate()
@@ -142,26 +151,24 @@ def sdk_worker(stop: threading.Event, init: bool) -> None:
         return
 
     device = devices[0]
+    _OPEN_DEVICES.append(device)
     print(
         f"sdk: {type(device).__name__} path={device.getPath()} "
         f"vid={device.vendor_id:04x} pid={device.product_id:04x}",
         flush=True,
     )
 
-    try:
-        device.open()
-        if init:
-            device.init()
-        while not stop.is_set():
-            data = device.read()
-            if data:
-                decoded = ""
-                if len(data) > 10:
-                    decoded = f" code=0x{data[9]:02x} state=0x{data[10]:02x}"
-                print(f"sdk raw:{decoded} {hexdump(data)}", flush=True)
-            time.sleep(0.01)
-    finally:
-        device.close()
+    device.open()
+    if init:
+        device.init()
+    while not stop.is_set():
+        data = device.read()
+        if data:
+            decoded = ""
+            if len(data) > 10:
+                decoded = f" code=0x{data[9]:02x} state=0x{data[10]:02x}"
+            print(f"sdk raw:{decoded} {hexdump(data)}", flush=True)
+        time.sleep(0.01)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -194,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         for worker in workers:
             worker.join(timeout=1)
 
-    return 0
+    hard_exit(0)
 
 
 if __name__ == "__main__":

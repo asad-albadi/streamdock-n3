@@ -10,6 +10,7 @@ import signal
 import subprocess
 import threading
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from streamdock_n3.events import (
     event_key,
 )
 from streamdock_n3.icons import FALLBACK_COLORS, make_icon, parse_color
+from streamdock_n3.shutdown import hard_exit
 
 try:
     from evdev import InputDevice, categorize, ecodes, list_devices  # type: ignore
@@ -227,11 +229,6 @@ def main(argv: list[str] | None = None) -> int:
 
     warn_if_hidraw_unreadable()
     warn_if_evdev_unreadable()
-    device = open_device()
-    print(
-        f"using {type(device).__name__} vid={device.vendor_id:04x} "
-        f"pid={device.product_id:04x} path={device.getPath()}"
-    )
 
     stop = False
     stop_event = threading.Event()
@@ -250,7 +247,14 @@ def main(argv: list[str] | None = None) -> int:
         if key:
             run_actions(actions.get(key), dry_run=args.dry_run)
 
+    exit_code = 0
     try:
+        device = open_device()
+        print(
+            f"using {type(device).__name__} vid={device.vendor_id:04x} "
+            f"pid={device.product_id:04x} path={device.getPath()}",
+            flush=True,
+        )
         device.open()
         if not args.no_init:
             device.init()
@@ -271,14 +275,17 @@ def main(argv: list[str] | None = None) -> int:
             if args.seconds and time.monotonic() - started >= args.seconds:
                 break
             time.sleep(0.1)
+    except Exception:
+        # hard_exit() skips interpreter finalization, so nothing else would
+        # ever report this. Print it here or the journal shows a bare
+        # "status=1/FAILURE" with no cause.
+        traceback.print_exc()
+        exit_code = 1
     finally:
         stop_event.set()
-        # Do NOT call device.close(): joining the vendored SDK's reader
-        # and heartbeat threads triggers libtransport.so's broken thread
-        # cleanup, which glibc's tcache integrity check then aborts on.
-        # Hard-exit instead — the kernel reclaims the HID fd cleanly and
-        # the daemon threads die without running their C destructors.
-        os._exit(0 if stop else 1)
+        # Reaching here without an exception is a success, whether the loop
+        # ended on a signal or on --seconds elapsing.
+        hard_exit(exit_code)
 
 
 if __name__ == "__main__":

@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import signal
 import time
+import traceback
 
 from streamdock_n3 import paths
 from streamdock_n3._vendor.StreamDock.DeviceManager import DeviceManager
 from streamdock_n3.events import BUTTON_NAMES, KNOB_NAMES, describe_event
 from streamdock_n3.icons import FALLBACK_COLORS, make_icon
+from streamdock_n3.shutdown import hard_exit
 
 
 def set_test_icons(device) -> None:
@@ -65,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     def on_input(_dev, event):
         print(describe_event(event), flush=True)
 
+    exit_code = 0
     try:
         device.open()
         if not args.no_init:
@@ -80,10 +83,13 @@ def main(argv: list[str] | None = None) -> int:
             if args.seconds and time.monotonic() - started >= args.seconds:
                 break
             time.sleep(0.1)
+    except Exception:
+        traceback.print_exc()
+        exit_code = 1
     finally:
-        device.close()
-
-    return 0
+        # Deliberately no device.close() — see shutdown.hard_exit for why
+        # closing the vendored SDK's handle aborts the process.
+        hard_exit(exit_code)
 
 
 if __name__ == "__main__":
