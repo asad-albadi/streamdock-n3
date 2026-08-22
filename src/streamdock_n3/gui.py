@@ -388,6 +388,25 @@ frame {{
 # ----- helpers ------------------------------------------------------------
 
 
+def render_action(value: Any) -> str:
+    """Render a config action as the single line an entry can display.
+
+    `daemon.run_actions` accepts a string, a list, or a {"command": ...} dict,
+    but an entry holds one line. Lists join with "; " rather than "&&": the
+    daemon launches each element independently, so "&&" would silently make
+    later commands depend on earlier ones succeeding. Anything unrecognised
+    degrades to str() instead of raising — this runs during window
+    construction, where a TypeError means the GUI never opens at all.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "; ".join(render_action(item) for item in value)
+    if isinstance(value, dict):
+        return str(value.get("command", ""))
+    return "" if value is None else str(value)
+
+
 def parse_hex(color: Any) -> Gdk.RGBA:
     """Parse a config colour, falling back to the default on anything invalid.
 
@@ -996,10 +1015,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
     # ----- helpers ------------------------------------------------------
 
     def _action_str(self, event: str) -> str:
-        val = self.config.get("actions", {}).get(event, "")
-        if isinstance(val, list):
-            return " && ".join(val)
-        return str(val)
+        return render_action(self.config.get("actions", {}).get(event, ""))
 
     def _mark_dirty(self) -> None:
         if not self._dirty:
@@ -1054,8 +1070,14 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         self._mark_dirty()
 
     def on_action_changed(self, entry: Gtk.Entry, event: str) -> None:
-        actions = self.config.setdefault("actions", {})
         text = entry.get_text().strip()
+        # A programmatic set_text (on_reload) also emits "changed". Writing
+        # back then would flatten a list or dict action into the one-line
+        # rendering and mark the config dirty without the user touching
+        # anything, so only act on text that differs from what is stored.
+        if text == self._action_str(event):
+            return
+        actions = self.config.setdefault("actions", {})
         if text:
             actions[event] = text
         else:
