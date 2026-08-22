@@ -23,12 +23,18 @@ SERVICE_DST = Path("/usr/lib/systemd/user/streamdock-n3.service")
 DESKTOP_DST = Path("/usr/share/applications/streamdock-n3-gui.desktop")
 
 
-def _data(name: str) -> Path:
+def _data_text(name: str) -> str:
+    """Return a packaged data file's contents.
+
+    Reads through the Traversable rather than resources.as_file, whose
+    extracted temp file is unlinked once its context exits — a path handed out
+    from inside that context is already gone when the caller opens it.
+    """
     ref = resources.files("streamdock_n3").joinpath(f"_data/{name}")
-    with resources.as_file(ref) as p:
-        if not Path(p).is_file():
-            raise FileNotFoundError(f"missing packaged data file: {name}")
-        return Path(p)
+    try:
+        return ref.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError) as exc:
+        raise FileNotFoundError(f"missing packaged data file: {name}") from exc
 
 
 def _resolve_bin_dir(explicit: str | None) -> Path:
@@ -47,8 +53,8 @@ def _resolve_bin_dir(explicit: str | None) -> Path:
     return Path("/usr/bin")
 
 
-def _render(template: Path, bin_dir: Path) -> str:
-    return template.read_text(encoding="utf-8").replace("@BIN@", str(bin_dir))
+def _render(template: str, bin_dir: Path) -> str:
+    return template.replace("@BIN@", str(bin_dir))
 
 
 def _install_file(content: str, dst: Path, mode: int = 0o644) -> None:
@@ -57,12 +63,6 @@ def _install_file(content: str, dst: Path, mode: int = 0o644) -> None:
     tmp.write_text(content, encoding="utf-8")
     os.chmod(tmp, mode)
     os.replace(tmp, dst)
-
-
-def _copy(src: Path, dst: Path, mode: int = 0o644) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dst)
-    os.chmod(dst, mode)
 
 
 def _reload_udev() -> None:
@@ -79,11 +79,11 @@ def _reload_udev() -> None:
 def install(bin_dir: Path) -> None:
     print(f"using binary directory: {bin_dir}")
     print(f"installing udev rule -> {UDEV_DST}")
-    _copy(_data("99-streamdock.rules"), UDEV_DST)
+    _install_file(_data_text("99-streamdock.rules"), UDEV_DST)
     print(f"installing systemd user unit -> {SERVICE_DST}")
-    _install_file(_render(_data("streamdock-n3.service"), bin_dir), SERVICE_DST)
+    _install_file(_render(_data_text("streamdock-n3.service"), bin_dir), SERVICE_DST)
     print(f"installing desktop entry -> {DESKTOP_DST}")
-    _install_file(_render(_data("streamdock-n3-gui.desktop"), bin_dir), DESKTOP_DST)
+    _install_file(_render(_data_text("streamdock-n3-gui.desktop"), bin_dir), DESKTOP_DST)
     print("reloading udev")
     _reload_udev()
     print()

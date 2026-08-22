@@ -62,3 +62,33 @@ def test_normalize_stringifies_integer_key_ids():
 def test_normalize_preserves_valid_config():
     original = {"brightness": 42, "keys": {"1": {"label": "A"}}, "actions": {"x": "y"}}
     assert configmod.normalize(dict(original)) == original
+
+
+def test_shipped_default_is_readable_and_valid():
+    """ensure_config's primary path: the packaged default must parse."""
+    text = configmod._shipped_default_text()
+    assert text is not None
+    data = json.loads(text)
+    assert set(data) >= {"brightness", "keys", "actions"}
+    assert set(data["keys"]) == {"1", "2", "3", "4", "5", "6"}
+
+
+def test_ensure_config_seeds_from_shipped_default(tmp_path):
+    target = tmp_path / "config.json"
+    configmod.ensure_config(target)
+    assert json.loads(target.read_text()) == json.loads(configmod._shipped_default_text())
+    assert not list(tmp_path.glob("*.tmp")), "atomic write left a temp file behind"
+
+
+def test_ensure_config_falls_back_when_shipped_default_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(configmod, "_shipped_default_text", lambda: None)
+    target = tmp_path / "config.json"
+    configmod.ensure_config(target)
+    assert json.loads(target.read_text()) == configmod.DEFAULT_CONFIG
+
+
+def test_ensure_config_does_not_clobber_existing(tmp_path):
+    target = tmp_path / "config.json"
+    target.write_text('{"brightness": 5}')
+    configmod.ensure_config(target)
+    assert json.loads(target.read_text()) == {"brightness": 5}

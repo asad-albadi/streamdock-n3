@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -51,15 +50,27 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-def _shipped_default_path() -> Path | None:
+def _shipped_default_text() -> str | None:
+    """Return the packaged default config, or None if it cannot be read.
+
+    Reads through the Traversable rather than resources.as_file: as_file may
+    extract to a temp file that is unlinked when its context exits, so a path
+    returned from inside that context is already gone by the time a caller
+    opens it.
+    """
     try:
         ref = resources.files("streamdock_n3").joinpath("_data/config.default.json")
-        with resources.as_file(ref) as p:
-            if p.is_file():
-                return Path(p)
-    except (FileNotFoundError, ModuleNotFoundError):
-        pass
-    return None
+        return ref.read_text(encoding="utf-8")
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return None
+
+
+def _write_atomic(text: str, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        fh.write(text)
+    os.replace(tmp, target)
 
 
 def ensure_config(path: Path | None = None) -> Path:
@@ -68,9 +79,9 @@ def ensure_config(path: Path | None = None) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         return target
-    shipped = _shipped_default_path()
+    shipped = _shipped_default_text()
     if shipped is not None:
-        shutil.copyfile(shipped, target)
+        _write_atomic(shipped, target)
         return target
     save(DEFAULT_CONFIG, target)
     return target
@@ -89,12 +100,7 @@ def load(path: Path | None = None) -> dict[str, Any]:
 
 def save(data: dict[str, Any], path: Path | None = None) -> None:
     target = path or paths.config_file()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-    os.replace(tmp, target)
+    _write_atomic(json.dumps(data, indent=2, ensure_ascii=False) + "\n", target)
 
 
 def normalize(config: dict[str, Any]) -> dict[str, Any]:
