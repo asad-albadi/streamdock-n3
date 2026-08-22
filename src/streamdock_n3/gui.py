@@ -43,7 +43,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
 SERVICE = "streamdock-n3.service"
 SERVICE_SYSTEM_PATH = Path("/usr/lib/systemd/user") / SERVICE
-SERVICE_USER_PATH = Path.home() / ".config/systemd/user" / SERVICE
+SERVICE_USER_PATH = paths.systemd_user_dir() / SERVICE
 APP_ID = "io.github.asad_albadi.StreamDockN3"
 VID = "6603"
 PID = "1003"
@@ -56,7 +56,7 @@ KNOBS = [1, 2, 3]
 KNOB_LABELS = {1: "Small knob 1", 2: "Small knob 2", 3: "Large knob"}
 ROUND_LABELS = {7: "Round button 1", 8: "Round button 2", 9: "Round button 3"}
 
-ICON_CACHE_DIR = paths.icon_cache_dir()
+APP_ICON_DIR = paths.app_icon_dir()
 ICON_RENDER_SIZE = 144  # px, captured PNG side
 DEFAULT_KEY_COLOR = "#1c63b8"
 
@@ -200,10 +200,10 @@ def icon_path_for_app(app: Gio.AppInfo, size: int = ICON_RENDER_SIZE) -> str | N
 
     try:
         from gi.repository import GdkPixbuf
-        ICON_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        APP_ICON_DIR.mkdir(parents=True, exist_ok=True)
         app_id = app.get_id() or app.get_display_name() or "app"
         safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in app_id)
-        out_path = ICON_CACHE_DIR / f"{safe}.png"
+        out_path = APP_ICON_DIR / f"{safe}.png"
         pb = GdkPixbuf.Pixbuf.new_from_file_at_size(source_path, size, size)
         pb.savev(str(out_path), "png", [], [])
         return str(out_path)
