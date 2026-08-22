@@ -75,17 +75,13 @@ def run_actions(actions: Any, *, dry_run: bool) -> None:
 
 
 def apply_icons(device, config: dict[str, Any]) -> None:
-    keys = config.get("keys", {})
-    if not isinstance(keys, dict):
-        return
+    keys = configmod.normalize(config)["keys"]
 
     icon_dir = paths.generated_key_dir()
     icon_dir.mkdir(parents=True, exist_ok=True)
 
     for key in range(1, 7):
         item = keys.get(str(key), {})
-        if not isinstance(item, dict):
-            item = {}
         icon_path = item.get("icon")
         if icon_path:
             source = Path(icon_path).expanduser()
@@ -298,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
 
     paths.ensure_runtime_dirs()
     config_path = args.config or configmod.ensure_config()
-    config = configmod.load(config_path)
+    config = configmod.normalize(configmod.load(config_path))
     actions = configmod.action_map(config)
 
     brightness = args.brightness

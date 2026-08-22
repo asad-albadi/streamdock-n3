@@ -97,6 +97,28 @@ def save(data: dict[str, Any], path: Path | None = None) -> None:
     os.replace(tmp, target)
 
 
+def normalize(config: dict[str, Any]) -> dict[str, Any]:
+    """Coerce a loaded config into the shape the daemon and GUI assume.
+
+    A hand-edited file can hold junk — a string where a key object belongs, a
+    missing "keys" object. The daemon tolerated this field by field; the GUI
+    builds widgets straight from these values, so it has to do the same or the
+    window fails to construct. Doing it once, up front, keeps both honest.
+
+    Mutates and returns `config`. Deliberately does not invent entries for
+    absent LCD keys: callers that need one use setdefault, so "key present but
+    unusable" and "key absent" stay distinguishable here.
+    """
+    keys = config.get("keys")
+    config["keys"] = {
+        str(k): (v if isinstance(v, dict) else {})
+        for k, v in (keys.items() if isinstance(keys, dict) else ())
+    }
+    if not isinstance(config.get("actions"), dict):
+        config["actions"] = {}
+    return config
+
+
 def action_map(config: dict[str, Any]) -> dict[str, Any]:
     actions = config.get("actions", {})
     return actions if isinstance(actions, dict) else {}

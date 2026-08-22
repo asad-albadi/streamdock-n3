@@ -57,6 +57,7 @@ ROUND_LABELS = {7: "Round button 1", 8: "Round button 2", 9: "Round button 3"}
 
 ICON_CACHE_DIR = paths.icon_cache_dir()
 ICON_RENDER_SIZE = 144  # px, captured PNG side
+DEFAULT_KEY_COLOR = "#1c63b8"
 
 DEFAULT_PALETTE = {
     "background": "#1e1e2e",
@@ -387,9 +388,21 @@ frame {{
 # ----- helpers ------------------------------------------------------------
 
 
-def parse_hex(color: str) -> Gdk.RGBA:
+def parse_hex(color: Any) -> Gdk.RGBA:
+    """Parse a config colour, falling back to the default on anything invalid.
+
+    Takes Any because the value comes straight from JSON: a number or null
+    would raise on .startswith(). Gdk.RGBA.parse returns False rather than
+    raising on a malformed string, so its result has to be checked or the
+    widget silently shows black and persists "#000000" on the next edit.
+    """
     rgba = Gdk.RGBA()
-    rgba.parse(color if color.startswith("#") else f"#{color}")
+    text = color if isinstance(color, str) else ""
+    text = text.strip()
+    if not text.startswith("#"):
+        text = f"#{text}"
+    if not rgba.parse(text):
+        rgba.parse(DEFAULT_KEY_COLOR)
     return rgba
 
 
@@ -541,7 +554,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title="Stream Dock N3")
         self._initial_tab = initial_tab
         self.set_default_size(680, 780)
-        self.config: dict[str, Any] = configmod.load()
+        self.config: dict[str, Any] = configmod.normalize(configmod.load())
         self._dirty = False
         self._toasts: list[Gtk.Revealer] = []
 
@@ -681,7 +694,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
         self.key_widgets: dict[int, dict[str, Any]] = {}
         for k in LCD_KEYS:
-            key_cfg = self.config.setdefault("keys", {}).setdefault(str(k), {})
+            key_cfg = self._key_cfg(k)
             outer.append(card(self._build_key_card(k, key_cfg)))
 
         return scroll
@@ -734,7 +747,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         label_page.append(field_row("Label", label_entry))
 
         color_btn = Gtk.ColorButton()
-        color_btn.set_rgba(parse_hex(key_cfg.get("color", "#1c63b8")))
+        color_btn.set_rgba(parse_hex(key_cfg.get("color")))
         color_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         color_box.append(color_btn)
         label_page.append(field_row("Color", color_box))
@@ -793,9 +806,16 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
     # ---- per-key helpers -------------------------------------------------
 
+    def _key_cfg(self, k: int) -> dict[str, Any]:
+        """Return key k's config dict, creating it if absent.
+
+        configmod.normalize guarantees "keys" is a dict of dicts; going through
+        one accessor keeps it that way for callers added later.
+        """
+        return self.config.setdefault("keys", {}).setdefault(str(k), {})
+
     def _current_mode(self, k: int) -> str:
-        cfg = self.config["keys"].get(str(k), {})
-        return "image" if cfg.get("icon") else "label"
+        return "image" if self._key_cfg(k).get("icon") else "label"
 
     def _sync_key_mode(self, k: int, initial: bool = False) -> None:
         mode = self._current_mode(k)
@@ -808,7 +828,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         w["preview"].queue_draw()
 
     def _draw_preview(self, area: Gtk.DrawingArea, cr, width: int, height: int, k: int) -> None:
-        cfg = self.config["keys"].get(str(k), {})
+        cfg = self._key_cfg(k)
         icon_path = cfg.get("icon")
         size = min(width, height)
         ox = (width - size) / 2
@@ -827,7 +847,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             except Exception:  # noqa: BLE001
                 log.exception("preview load failed for %s", icon_path)
 
-        rgba = parse_hex(cfg.get("color", "#1c63b8"))
+        rgba = parse_hex(cfg.get("color"))
         cr.set_source_rgb(rgba.red, rgba.green, rgba.blue)
         cr.rectangle(ox, oy, size, size)
         cr.fill()
@@ -844,12 +864,12 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             cr.show_text(text)
 
     def _on_key_label_changed(self, entry: Gtk.Entry, k: int) -> None:
-        self.config["keys"].setdefault(str(k), {})["label"] = entry.get_text()
+        self._key_cfg(k)["label"] = entry.get_text()
         self.key_widgets[k]["preview"].queue_draw()
         self._mark_dirty()
 
     def _on_key_color_set(self, btn: Gtk.ColorButton, k: int) -> None:
-        self.config["keys"].setdefault(str(k), {})["color"] = rgba_to_hex(btn.get_rgba())
+        self._key_cfg(k)["color"] = rgba_to_hex(btn.get_rgba())
         self.key_widgets[k]["preview"].queue_draw()
         self._mark_dirty()
 
@@ -857,7 +877,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         if not btn.get_active():
             return
         w = self.key_widgets[k]
-        cfg = self.config["keys"].setdefault(str(k), {})
+        cfg = self._key_cfg(k)
         if mode == "label":
             cfg.pop("icon", None)
             w["path"].set_text("")
@@ -886,7 +906,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             if f is None:
                 return
             path = f.get_path()
-            cfg = self.config["keys"].setdefault(str(k), {})
+            cfg = self._key_cfg(k)
             cfg["icon"] = path
             w = self.key_widgets[k]
             w["path"].set_text(path)
@@ -902,7 +922,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
             cmd_raw = app.get_commandline() or app.get_executable() or ""
             cmd = strip_exec_codes(cmd_raw)
             icon_path = icon_path_for_app(app)
-            cfg = self.config["keys"].setdefault(str(k), {})
+            cfg = self._key_cfg(k)
             if icon_path:
                 cfg["icon"] = icon_path
             else:
@@ -928,7 +948,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         dlg.present()
 
     def _on_clear_image(self, _btn: Gtk.Button, k: int) -> None:
-        cfg = self.config["keys"].setdefault(str(k), {})
+        cfg = self._key_cfg(k)
         cfg.pop("icon", None)
         w = self.key_widgets[k]
         w["path"].set_text("")
@@ -1060,15 +1080,15 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
     def on_reload(self, _btn: Gtk.Button) -> None:
         try:
-            self.config = configmod.load()
+            self.config = configmod.normalize(configmod.load())
         except Exception as exc:  # noqa: BLE001
             self.toast(f"Reload failed: {exc}")
             return
         self.brightness_adj.set_value(int(self.config.get("brightness", 80)))
         for k, w in self.key_widgets.items():
-            cfg = self.config.get("keys", {}).get(str(k), {})
+            cfg = self._key_cfg(k)
             w["label"].set_text(str(cfg.get("label", "")))
-            w["color"].set_rgba(parse_hex(cfg.get("color", "#1c63b8")))
+            w["color"].set_rgba(parse_hex(cfg.get("color")))
             w["action"].set_text(self._action_str(f"button.{k}.press"))
             w["path"].set_text(str(cfg.get("icon", "")))
             self._sync_key_mode(k)
