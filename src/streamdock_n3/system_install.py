@@ -37,6 +37,58 @@ def _data_text(name: str) -> str:
         raise FileNotFoundError(f"missing packaged data file: {name}") from exc
 
 
+def _purge_root_owned_bytecode() -> None:
+    """Delete root-owned bytecode this process just wrote into a user venv.
+
+    The guard in streamdock_n3/__init__.py sets sys.dont_write_bytecode, which
+    covers every submodule, but it cannot cover __init__ itself: CPython writes
+    a module's .pyc before executing its body, so __init__.cpython-*.pyc is
+    already on disk as root by the time the guard runs.
+
+    One root-owned file inside a user-owned pipx venv is enough to make every
+    later upgrade fail -- `uv venv --clear` and `pipx install --force` both hit
+    EACCES trying to remove the tree, and pipx then crashes on its own trash
+    directory. So clean up after ourselves instead of leaving a landmine.
+
+    Scoped to the whole virtualenv, not just this package: the venv's own
+    _virtualenv.py shim is imported at interpreter startup, before this package
+    exists, so it too lands in site-packages as root and blocks removal of lib/
+    just as effectively.
+
+    Skipped when the tree is itself root-owned: that is a system-wide install
+    (the Makefile path), where root owning the bytecode is correct and removing
+    it would be vandalism.
+    """
+    try:
+        import streamdock_n3
+
+        pkg_dir = Path(streamdock_n3.__file__).resolve().parent
+        scope = pkg_dir
+        for parent in pkg_dir.parents:
+            if (parent / "pyvenv.cfg").is_file():
+                scope = parent
+                break
+        if scope.stat().st_uid == 0:
+            return
+        removed = 0
+        for cache in sorted(scope.rglob("__pycache__"), reverse=True):
+            for entry in list(cache.iterdir()):
+                if entry.is_file() and entry.stat().st_uid == 0:
+                    entry.unlink()
+                    removed += 1
+            if cache.stat().st_uid == 0 and not any(cache.iterdir()):
+                cache.rmdir()
+        if removed:
+            print(f"cleaned {removed} root-owned bytecode file(s) under {scope}")
+    except (OSError, ImportError) as exc:
+        print(
+            f"warning: could not clean root-owned bytecode: {exc}\n"
+            "If a later upgrade fails with 'Permission denied', remove the venv "
+            "with sudo and reinstall.",
+            file=sys.stderr,
+        )
+
+
 def _resolve_bin_dir(explicit: str | None) -> Path:
     if explicit:
         return Path(explicit)
@@ -119,11 +171,15 @@ def main(argv: list[str] | None = None) -> int:
         print("error: streamdock-n3-install must run as root (use sudo).", file=sys.stderr)
         return 1
 
-    if args.uninstall:
-        uninstall()
-        return 0
-
-    install(_resolve_bin_dir(args.bin_dir))
+    try:
+        if args.uninstall:
+            uninstall()
+        else:
+            install(_resolve_bin_dir(args.bin_dir))
+    finally:
+        # Runs on the failure path too: a half-finished install still imported
+        # the package as root, so it still wrote the .pyc.
+        _purge_root_owned_bytecode()
     return 0
 
 

@@ -88,6 +88,42 @@ fi
 # the stdlib venv backend, so it is safe to export unconditionally.
 export UV_VENV_CLEAR=1
 
+# A `sudo streamdock-n3-install` from before 0.3.2 left root-owned bytecode in
+# the user's venv: Python compiles a module before running it, so neither the
+# package's dont_write_bytecode guard nor any in-process cleanup can stop
+# __init__.pyc (or the venv's own _virtualenv.pyc) being written as root. One
+# such file makes `uv venv --clear` fail with EACCES forever, and pipx then
+# crashes trying to empty its own trash. Clear that wreckage before installing.
+# Identify the target structurally before removing it, rather than by matching
+# "pipx" somewhere in the path: PIPX_HOME can point anywhere, and a string test
+# both misses real venvs and is a poor safety net for an `rm -rf`.
+clear_if_root_owned() {
+    target="$1"
+    kind="$2"
+    [ -d "$target" ] || return 0
+    case "$kind" in
+        venv)
+            # A venv has a pyvenv.cfg. Nothing else does.
+            [ -f "$target/pyvenv.cfg" ] || return 0
+            ;;
+        trash)
+            [ "$(basename "$target")" = "trash" ] || return 0
+            [ -d "$(dirname "$target")/venvs" ] || return 0
+            ;;
+        *) return 0 ;;
+    esac
+    if [ -n "$(find "$target" ! -uid "$(id -u)" -print -quit 2>/dev/null)" ]; then
+        echo "clearing root-owned leftovers in $target (sudo required)"
+        sudo rm -rf -- "$target"
+    fi
+}
+
+PIPX_VENVS="$(pipx environment --value PIPX_LOCAL_VENVS 2>/dev/null || true)"
+if [ -n "$PIPX_VENVS" ]; then
+    clear_if_root_owned "$PIPX_VENVS/streamdock-n3-linux" venv
+    clear_if_root_owned "$(dirname "$PIPX_VENVS")/trash" trash
+fi
+
 # Resolve the wheel URL.
 if [ "$VERSION" = "latest" ]; then
     RELEASE_API="https://api.github.com/repos/${REPO}/releases/latest"
@@ -128,6 +164,10 @@ if [ "$DO_SYSTEM" -eq 1 ]; then
         exit 0
     fi
 
+    # No PYTHONDONTWRITEBYTECODE here: pipx generates console scripts with a
+    # `#!.../python -E` shebang, and -E discards every PYTHON* variable, so it
+    # would be a no-op. streamdock-n3-install cleans up its own root-owned
+    # bytecode instead (see system_install._purge_root_owned_bytecode).
     echo "running: sudo streamdock-n3-install"
     sudo "$(command -v streamdock-n3-install)"
 
