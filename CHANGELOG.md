@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.3.2 — 2026-08-22
+
+### Fixed
+
+- Upgrades no longer fail with `Permission denied` on the venv. 0.3.1 fixed only
+  the outer symptom (`pipx install --force` not passing `--clear` to uv); with
+  that out of the way, uv reached the actual blocker: **root-owned bytecode
+  inside the user-owned pipx venv**. uv does not compile bytecode on install, so
+  a fresh venv has no `.pyc` files, and `install.sh` runs `sudo
+  streamdock-n3-install` immediately afterwards — so root writes them. Two are
+  enough to make the venv unremovable forever:
+  `streamdock_n3/__pycache__/__init__.cpython-*.pyc` and
+  `site-packages/__pycache__/_virtualenv.cpython-*.pyc`.
+
+  Neither is preventable from inside the package. CPython writes a module's
+  `.pyc` before running its body, so the `dont_write_bytecode` guard added in
+  0.2.5 is already too late for its own `__init__.pyc`, and the venv's
+  `_virtualenv.py` shim is compiled at interpreter startup, earlier still.
+  `PYTHONDONTWRITEBYTECODE` cannot help: pipx console scripts carry a
+  `python -E` shebang, and `-E` discards all `PYTHON*` variables.
+
+  `streamdock-n3-install` therefore cleans up after itself across the whole
+  venv, from a `finally` block so a failed install cleans up too, skipping
+  root-owned trees where root-owned bytecode is correct (the Makefile install).
+- `install.sh` also clears a venv already poisoned by an older install. Without
+  that, pip renames the undeletable directory to `~treamdock_n3` and the
+  leftovers survive to break the upgrade after next. The target is identified by
+  its `pyvenv.cfg`, not by matching `pipx` in the path.
+
+### Notes
+
+- If an upgrade already failed and left pipx crashing in `rmdir(paths.ctx.trash)`,
+  `sudo rm -rf ~/.local/share/pipx/trash` clears it; the new installer handles
+  this automatically from here on.
+
 ## 0.3.1 — 2026-08-22
 
 ### Fixed
