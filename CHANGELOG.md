@@ -48,8 +48,8 @@
 - Verified on this machine and in simulated end-user configurations: with and
   without libadwaita, with and without a user `gtk.css`, with and without a
   portal, and in each of the four theme modes.
-- `docs/screenshot-*.png` still show the old fixed palette and are now
-  unrepresentative.
+- `docs/screenshot-*.png` were recaptured under a themed desktop, so they now
+  show the app inheriting the system palette rather than a fixed one.
 
 ## 0.3.2 — 2026-08-22
 
