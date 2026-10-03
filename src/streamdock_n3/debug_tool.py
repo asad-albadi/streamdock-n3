@@ -17,9 +17,11 @@ from evdev import InputDevice, categorize, ecodes, list_devices  # type: ignore
 from streamdock_n3._vendor.StreamDock.DeviceManager import DeviceManager
 from streamdock_n3.shutdown import hard_exit
 
-VID = "6603"
-PID = "1003"
-
+SUPPORTED_DEVICES = [
+      ("6603", "1003"),
+      ("5548", "1001"),
+  ]   
+VID, PID = SUPPORTED_DEVICES[0]
 
 def hexdump(data: bytes, limit: int = 64) -> str:
     return " ".join(f"{byte:02x}" for byte in data[:limit])
@@ -37,7 +39,7 @@ def is_streamdock_evdev(path: str) -> bool:
         info = dev.info
         name = (dev.name or "").lower()
         return (
-            (info.vendor == int(VID, 16) and info.product == int(PID, 16))
+            any(info.vendor == int(v, 16) and info.product == int(p, 16) for v, p in SUPPORTED_DEVICES)
             or "hotspotekusb" in name
             or "streamdock" in name
         )
@@ -104,7 +106,8 @@ def hidraw_paths() -> list[Path]:
             text = uevent.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if f"v0000{VID.upper()}p0000{PID.upper()}" in text:
+        tokens = {f"v0000{v.upper()}p0000{p.upper()}" for v, p in SUPPORTED_DEVICES}
+        if any(token in text for token in tokens):
             out.append(Path("/dev") / hidraw.name)
     return out
 

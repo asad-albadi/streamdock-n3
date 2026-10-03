@@ -15,12 +15,18 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 
 UDEV_DST = Path("/etc/udev/rules.d/99-streamdock.rules")
 SERVICE_DST = Path("/usr/lib/systemd/user/streamdock-n3.service")
 DESKTOP_DST = Path("/usr/share/applications/streamdock-n3-gui.desktop")
+USB_DEVICES_DIR = Path("/sys/bus/usb/devices")
+DEVICE_RULES = {
+    "mirabox": ("Mirabox", "6603", "99-streamdock-mirabox.rules"),
+    "hotspotekusb": ("HOTSPOTEKUSB", "5548", "99-streamdock-hotspotekusb.rules"),
+}
 
 
 def _data_text(name: str) -> str:
@@ -117,27 +123,99 @@ def _install_file(content: str, dst: Path, mode: int = 0o644) -> None:
     os.replace(tmp, dst)
 
 
-def _reload_udev() -> None:
-    for cmd in (
-        ["udevadm", "control", "--reload-rules"],
-        ["udevadm", "trigger", "--attr-match=idVendor=6603"],
-    ):
+def detect_connected_devices(root: Path = USB_DEVICES_DIR) -> tuple[str, ...]:
+    """Return supported device keys currently present on the USB bus."""
+    vendors: set[str] = set()
+    try:
+        for vendor_file in root.glob("*/idVendor"):
+            try:
+                vendors.add(vendor_file.read_text(encoding="ascii").strip().lower())
+            except OSError:
+                continue
+    except OSError:
+        return ()
+    return tuple(
+        key
+        for key, (_label, vendor_id, _rule) in DEVICE_RULES.items()
+        if vendor_id in vendors
+    )
+
+
+def select_device(
+    device: str | None = None,
+    *,
+    input_fn: Callable[[str], str] | None = None,
+) -> str:
+    """Ask which rule to install, defaulting to the sole detected device."""
+    if device is not None:
+        if device not in DEVICE_RULES:
+            raise ValueError(f"unsupported device: {device}")
+        return device
+
+    detected = detect_connected_devices()
+    default = detected[0] if len(detected) == 1 else None
+    if detected:
+        labels = ", ".join(DEVICE_RULES[key][0] for key in detected)
+        print(f"Detected USB device(s): {labels}")
+    else:
+        print("No supported Stream Dock detected over USB.")
+
+    if input_fn is None:
+        input_fn = input
+    for key, (label, _vendor_id, _rule) in DEVICE_RULES.items():
+        if key == default:
+            marker = " (detected, default)"
+        elif key in detected:
+            marker = " (detected)"
+        else:
+            marker = ""
+        print(f"  {1 if key == 'mirabox' else 2}) {label}{marker}")
+    prompt = "Select device [1/2]"
+    if default:
+        prompt += f" (Enter = {DEVICE_RULES[default][0]})"
+    prompt += ": "
+
+    while True:
+        answer = input_fn(prompt).strip().lower()
+        if not answer and default:
+            return default
+        if answer in ("1", "mirabox", "m"):
+            return "mirabox"
+        if answer in ("2", "hotspotekusb", "hotspot", "h"):
+            return "hotspotekusb"
+        print("Please enter 1 or 2.")
+
+
+def _reload_udev(vendor_id: str | None = None) -> None:
+    commands = [["udevadm", "control", "--reload-rules"]]
+    vendor_ids = (vendor_id,) if vendor_id else tuple(
+        details[1] for details in DEVICE_RULES.values()
+    )
+    commands.extend(
+        ["udevadm", "trigger", f"--attr-match=idVendor={vid}"]
+        for vid in vendor_ids
+    )
+    for cmd in commands:
         try:
             subprocess.run(cmd, check=False)
         except FileNotFoundError:
             print(f"warning: {cmd[0]} not found; skipping {' '.join(cmd[1:])}")
 
 
-def install(bin_dir: Path) -> None:
+def install(bin_dir: Path, device: str) -> None:
+    if device not in DEVICE_RULES:
+        raise ValueError(f"unsupported device: {device}")
+    label, vendor_id, rule_file = DEVICE_RULES[device]
     print(f"using binary directory: {bin_dir}")
     print(f"installing udev rule -> {UDEV_DST}")
-    _install_file(_data_text("99-streamdock.rules"), UDEV_DST)
+    print(f"selected device: {label}")
+    _install_file(_data_text(rule_file), UDEV_DST)
     print(f"installing systemd user unit -> {SERVICE_DST}")
     _install_file(_render(_data_text("streamdock-n3.service"), bin_dir), SERVICE_DST)
     print(f"installing desktop entry -> {DESKTOP_DST}")
     _install_file(_render(_data_text("streamdock-n3-gui.desktop"), bin_dir), DESKTOP_DST)
     print("reloading udev")
-    _reload_udev()
+    _reload_udev(vendor_id)
     print()
     print("Installed. Next steps:")
     print("  1) Unplug and replug the Stream Dock so udev rules apply.")
@@ -165,6 +243,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Remove the installed udev rule, service, and desktop file.",
     )
+    parser.add_argument(
+        "--device",
+        choices=tuple(DEVICE_RULES),
+        help="Device rule to install (normally selected interactively).",
+    )
     args = parser.parse_args(argv)
 
     if os.geteuid() != 0:
@@ -175,7 +258,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.uninstall:
             uninstall()
         else:
-            install(_resolve_bin_dir(args.bin_dir))
+            try:
+                device = select_device(args.device)
+            except EOFError:
+                print(
+                    "error: choose a device with --device when running non-interactively.",
+                    file=sys.stderr,
+                )
+                return 1
+            install(_resolve_bin_dir(args.bin_dir), device)
     finally:
         # Runs on the failure path too: a half-finished install still imported
         # the package as root, so it still wrote the .pyc.

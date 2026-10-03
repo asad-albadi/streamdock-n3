@@ -14,39 +14,84 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "brightness": 80,
     "grab_evdev": True,
     "theme": "system",
-    "keys": {
-        "1": {"label": "Term", "color": "#1c63b8"},
-        "2": {"label": "Web", "color": "#188452"},
-        "3": {"label": "Files", "color": "#b55324"},
-        "4": {"label": "OBS", "color": "#8444a8"},
-        "5": {"label": "Mute", "color": "#327a8a"},
-        "6": {"label": "Play", "color": "#ae365c"},
-    },
+    "pages": [
+        {
+            "name": "Apps",
+            "keys": {
+                "1": {"label": "Terminal", "color": "#1c63b8"},
+                "2": {"label": "Browser",  "color": "#188452"},
+                "3": {"label": "Files",    "color": "#b55324"},
+                "4": {"label": "Music",    "color": "#8444a8"},
+                "5": {"label": "Chat",     "color": "#327a8a"},
+                "6": {"label": "Steam",    "color": "#ae365c"},
+            },
+            "actions": {
+                "button.1.press": "alacritty",
+                "button.2.press": "xdg-open https://",
+                "button.3.press": "xdg-open \"$HOME\"",
+                "button.4.press": "strawberry",
+                "button.5.press": "telegram-desktop",
+                "button.6.press": "/usr/bin/steam",
+            },
+        },
+        {
+            "name": "Dev",
+            "keys": {
+                "1": {"label": "VSCode",   "color": "#007acc"},
+                "2": {"label": "Terminal", "color": "#1c63b8"},
+                "3": {"label": "Browser",  "color": "#188452"},
+                "4": {"label": "git pull", "color": "#e06c75"},
+                "5": {"label": "git push", "color": "#56b6c2"},
+                "6": {"label": "git log",  "color": "#d19a66"},
+            },
+            "actions": {
+                "button.1.press": "code",
+                "button.2.press": "alacritty",
+                "button.3.press": "xdg-open https://",
+                "button.4.press": "alacritty -e bash -c 'git pull; read'",
+                "button.5.press": "alacritty -e bash -c 'git push; read'",
+                "button.6.press": "alacritty -e bash -c 'git log --oneline -20; read'",
+            },
+        },
+        {
+            "name": "System",
+            "keys": {
+                "1": {"label": "Screenshot", "color": "#e5c07b"},
+                "2": {"label": "Recorder",   "color": "#e06c75"},
+                "3": {"label": "OBS",        "color": "#8444a8"},
+                "4": {"label": "Monitor",    "color": "#56b6c2"},
+                "5": {"label": "Reboot",     "color": "#be5046"},
+                "6": {"label": "Shutdown",   "color": "#ff0000"},
+            },
+            "actions": {
+                "button.1.press": "flameshot gui",
+                "button.2.press": "simplescreenrecorder",
+                "button.3.press": "obs",
+                "button.4.press": "alacritty -e btop",
+                "button.5.press": "systemctl reboot",
+                "button.6.press": "systemctl poweroff",
+            },
+        },
+    ],
     "actions": {
-        "button.1.press": "alacritty",
-        "button.2.press": "xdg-open https://",
-        "button.3.press": "xdg-open \"$HOME\"",
-        "button.4.press": "obs",
-        "button.5.press": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
-        "button.6.press": "playerctl play-pause",
-        "button.7.press": "hyprctl dispatch workspace 1",
-        "button.8.press": "hyprctl dispatch workspace 2",
-        "button.9.press": "hyprctl dispatch workspace 3",
-        "knob.1.left": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
+        "button.7.press": "__page:next__",
+        "button.8.press": "__page:first__",
+        "button.9.press": "__page:prev__",
+        "knob.1.left":  "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
         "knob.1.right": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
         "knob.1.press": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
-        "knob.2.left": "playerctl previous",
+        "knob.2.left":  "playerctl previous",
         "knob.2.right": "playerctl next",
         "knob.2.press": "playerctl play-pause",
-        "knob.3.left": "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%-",
+        "knob.3.left":  "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%-",
         "knob.3.right": "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%+",
         "knob.3.press": "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle",
-        "evdev.KEY_VOLUMEDOWN.press": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
-        "evdev.KEY_VOLUMEUP.press": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
-        "evdev.KEY_MUTE.press": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+        "evdev.KEY_VOLUMEDOWN.press":  "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-",
+        "evdev.KEY_VOLUMEUP.press":    "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+",
+        "evdev.KEY_MUTE.press":        "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
         "evdev.KEY_PREVIOUSSONG.press": "playerctl previous",
-        "evdev.KEY_NEXTSONG.press": "playerctl next",
-        "evdev.KEY_PLAYPAUSE.press": "playerctl play-pause",
+        "evdev.KEY_NEXTSONG.press":    "playerctl next",
+        "evdev.KEY_PLAYPAUSE.press":   "playerctl play-pause",
     },
 }
 
@@ -116,11 +161,27 @@ def normalize(config: dict[str, Any]) -> dict[str, Any]:
     absent LCD keys: callers that need one use setdefault, so "key present but
     unusable" and "key absent" stay distinguishable here.
     """
+    # Normalize root-level keys (legacy flat configs without pages)
     keys = config.get("keys")
     config["keys"] = {
         str(k): (v if isinstance(v, dict) else {})
         for k, v in (keys.items() if isinstance(keys, dict) else ())
     }
+
+    # Normalize each page's keys and actions
+    pages = config.get("pages")
+    if isinstance(pages, list):
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            page_keys = page.get("keys")
+            page["keys"] = {
+                str(k): (v if isinstance(v, dict) else {})
+                for k, v in (page_keys.items() if isinstance(page_keys, dict) else ())
+            }
+            if not isinstance(page.get("actions"), dict):
+                page["actions"] = {}
+
     if not isinstance(config.get("actions"), dict):
         config["actions"] = {}
     return config

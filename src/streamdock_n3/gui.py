@@ -16,6 +16,7 @@ from typing import Any
 
 from streamdock_n3 import config as configmod
 from streamdock_n3 import paths
+from streamdock_n3 import system_install as installmod
 from streamdock_n3 import theme as thememod
 
 paths.ensure_runtime_dirs()
@@ -59,8 +60,8 @@ SERVICE = "streamdock-n3.service"
 SERVICE_SYSTEM_PATH = Path("/usr/lib/systemd/user") / SERVICE
 SERVICE_USER_PATH = paths.systemd_user_dir() / SERVICE
 APP_ID = "io.github.asad_albadi.StreamDockN3"
-VID = "6603"
-PID = "1003"
+
+SUPPORTED_VIDS = ["6603", "5548"]
 
 OMARCHY_THEME = Path.home() / ".config/omarchy/current/theme/colors.toml"
 
@@ -108,13 +109,10 @@ def device_present() -> bool:
         for dev in Path("/sys/bus/usb/devices").glob("*"):
             vid_f = dev / "idVendor"
             pid_f = dev / "idProduct"
-            if (
-                vid_f.exists()
-                and pid_f.exists()
-                and vid_f.read_text().strip().lower() == VID.lower()
-                and pid_f.read_text().strip().lower() == PID.lower()
-            ):
-                return True
+            if vid_f.exists() and pid_f.exists():
+                vid = vid_f.read_text().strip().lower()
+                if any(vid == v.lower() for v in SUPPORTED_VIDS):
+                    return True
         return False
     except Exception:  # noqa: BLE001
         log.exception("device_present failed")
@@ -125,14 +123,14 @@ def service_installed() -> bool:
     return SERVICE_SYSTEM_PATH.exists() or SERVICE_USER_PATH.exists()
 
 
-def install_service_via_pkexec() -> tuple[bool, str]:
+def install_service_via_pkexec(device: str) -> tuple[bool, str]:
     """Run `pkexec streamdock-n3-install` to install udev/service/desktop system-wide."""
     bin_path = shutil.which("streamdock-n3-install")
     if not bin_path:
         return False, "streamdock-n3-install not found on PATH"
     try:
         r = subprocess.run(
-            ["pkexec", bin_path],
+            ["pkexec", bin_path, "--device", device],
             capture_output=True, text=True, timeout=60,
         )
         log.info("pkexec install rc=%s out=%r", r.returncode, r.stdout + r.stderr)
@@ -407,6 +405,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         self._dirty = False
         self._toasts: list[Gtk.Revealer] = []
         self._status_probe_running = False
+        self._current_page = 0
 
         header = Gtk.HeaderBar()
         header.set_show_title_buttons(True)
@@ -454,6 +453,72 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         self._refresh_status()
         GLib.timeout_add_seconds(3, self._refresh_status_tick)
 
+    # ----- pages helpers --------------------------------------------------
+
+    def _get_pages(self) -> list[dict[str, Any]]:
+        pages = self.config.get("pages")
+        if pages and isinstance(pages, list):
+            return pages
+        return [{"name": "Page 1", "keys": self.config.get("keys", {}), "actions": {}}]
+
+    def _current_page_data(self) -> dict[str, Any]:
+        pages = self._get_pages()
+        return pages[self._current_page % len(pages)]
+
+    def _switch_page(self, index: int) -> None:
+        pages = self._get_pages()
+        self._current_page = index % len(pages)
+        self._refresh_nav()
+        for k, w in self.key_widgets.items():
+            cfg = self._key_cfg(k)
+            w["label"].set_text(str(cfg.get("label", "")))
+            w["color"].set_rgba(parse_hex(cfg.get("color")))
+            w["action"].set_text(self._action_str(f"button.{k}.press"))
+            w["path"].set_text(str(cfg.get("icon", "")))
+            self._sync_key_mode(k)
+            w["preview"].queue_draw()
+
+    def _refresh_nav(self) -> None:
+        pages = self._get_pages()
+        n = len(pages)
+        name = pages[self._current_page].get("name", f"Page {self._current_page + 1}")
+        self._page_label.set_text(f"{self._current_page + 1} / {n}  —  {name}")
+        self._page_name_entry.set_text(name)
+        self._delete_btn.set_visible(n > 1)
+
+    def _on_add_page(self, _btn: Gtk.Button) -> None:
+        pages = self._get_pages()
+        new_index = len(pages)
+        pages.append({
+            "name": f"Page {new_index + 1}",
+            "keys": {},
+            "actions": {},
+        })
+        self.config["pages"] = pages
+        self._switch_page(new_index)
+        self._mark_dirty()
+        self.toast(f"Page {new_index + 1} added")
+
+    def _on_delete_page(self, _btn: Gtk.Button) -> None:
+        pages = self._get_pages()
+        if len(pages) <= 1:
+            return
+        pages.pop(self._current_page)
+        self.config["pages"] = pages
+        self._switch_page(max(0, self._current_page - 1))
+        self._mark_dirty()
+        self.toast("Page deleted")
+
+    def _on_page_name_changed(self, entry: Gtk.Entry) -> None:
+        pages = self._get_pages()
+        new_name = entry.get_text().strip()
+        if new_name and new_name != pages[self._current_page].get("name", ""):
+            pages[self._current_page]["name"] = new_name
+            self._page_label.set_text(
+                f"{self._current_page + 1} / {len(pages)}  —  {new_name}"
+            )
+            self._mark_dirty()
+
     # ----- pages --------------------------------------------------------
 
     def _build_status_page(self) -> Gtk.Widget:
@@ -476,7 +541,7 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         dev_row.append(self.device_dot)
         dev_row.append(self.device_status)
         device_box.append(dev_row)
-        device_box.append(dim_label("USB 6603:1003 / HOTSPOTEKUSB HID DEMO"))
+        device_box.append(dim_label("USB 6603:1003 or 5548:1001 / HOTSPOTEKUSB HID DEMO"))
         outer.append(card(device_box))
 
         outer.append(section_label("Service"))
@@ -535,6 +600,55 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         outer.set_margin_start(10)
         outer.set_margin_end(10)
         scroll.set_child(outer)
+
+        # Page navigation bar (always shown)
+        pages = self._get_pages()
+        nav_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        nav_box.set_margin_bottom(4)
+
+        # Row 1: prev / counter / next / add / delete
+        nav_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+
+        prev_btn = Gtk.Button(label="◀")
+        prev_btn.connect("clicked", lambda _: self._switch_page(self._current_page - 1))
+        nav_row.append(prev_btn)
+
+        self._page_label = Gtk.Label(
+            label=f"1 / {len(pages)}  —  {pages[0].get('name', 'Page 1')}",
+            hexpand=True,
+            halign=Gtk.Align.CENTER,
+        )
+        nav_row.append(self._page_label)
+
+        next_btn = Gtk.Button(label="▶")
+        next_btn.connect("clicked", lambda _: self._switch_page(self._current_page + 1))
+        nav_row.append(next_btn)
+
+        add_btn = Gtk.Button(label="＋ Add page")
+        add_btn.connect("clicked", self._on_add_page)
+        nav_row.append(add_btn)
+
+        self._delete_btn = Gtk.Button(label="🗑 Delete page")
+        self._delete_btn.add_css_class("destructive-action")
+        self._delete_btn.connect("clicked", self._on_delete_page)
+        self._delete_btn.set_visible(len(pages) > 1)
+        nav_row.append(self._delete_btn)
+
+        nav_box.append(nav_row)
+
+        # Row 2: page name entry
+        name_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        name_lbl = Gtk.Label(label="Page name", xalign=0)
+        name_lbl.set_size_request(90, -1)
+        self._page_name_entry = Gtk.Entry()
+        self._page_name_entry.set_text(pages[0].get("name", "Page 1"))
+        self._page_name_entry.set_hexpand(True)
+        self._page_name_entry.connect("changed", self._on_page_name_changed)
+        name_row.append(name_lbl)
+        name_row.append(self._page_name_entry)
+        nav_box.append(name_row)
+
+        outer.append(card(nav_box))
 
         outer.append(section_label("LCD Keys"))
         outer.append(dim_label(
@@ -656,12 +770,9 @@ class StreamDockWindow(Gtk.ApplicationWindow):
     # ---- per-key helpers -------------------------------------------------
 
     def _key_cfg(self, k: int) -> dict[str, Any]:
-        """Return key k's config dict, creating it if absent.
-
-        configmod.normalize guarantees "keys" is a dict of dicts; going through
-        one accessor keeps it that way for callers added later.
-        """
-        return self.config.setdefault("keys", {}).setdefault(str(k), {})
+        """Return key k's config dict for the current page, creating it if absent."""
+        page = self._current_page_data()
+        return page.setdefault("keys", {}).setdefault(str(k), {})
 
     def _current_mode(self, k: int) -> str:
         return "image" if self._key_cfg(k).get("icon") else "label"
@@ -776,10 +887,11 @@ class StreamDockWindow(Gtk.ApplicationWindow):
                 cfg["icon"] = icon_path
             else:
                 cfg.pop("icon", None)
-            actions = self.config.setdefault("actions", {})
+            # Write button action into the current page's actions
+            page_actions = self._current_page_data().setdefault("actions", {})
             event = f"button.{k}.press"
             if cmd:
-                actions[event] = cmd
+                page_actions[event] = cmd
             w = self.key_widgets[k]
             w["path"].set_text(icon_path or "")
             w["action"].set_text(cmd)
@@ -844,7 +956,19 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
     # ----- helpers ------------------------------------------------------
 
+    def _is_page_action(self, event: str) -> bool:
+        """Returns True if this event belongs to a page (button.1-6), False if global."""
+        if not event.startswith("button."):
+            return False
+        for k in ROUND_BUTTONS:
+            if event.startswith(f"button.{k}."):
+                return False
+        return True
+
     def _action_str(self, event: str) -> str:
+        if self._is_page_action(event):
+            page_actions = self._current_page_data().get("actions", {})
+            return render_action(page_actions.get(event, ""))
         return render_action(self.config.get("actions", {}).get(event, ""))
 
     def _mark_dirty(self) -> None:
@@ -931,7 +1055,10 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         # anything, so only act on text that differs from what is stored.
         if text == self._action_str(event):
             return
-        actions = self.config.setdefault("actions", {})
+        if self._is_page_action(event):
+            actions = self._current_page_data().setdefault("actions", {})
+        else:
+            actions = self.config.setdefault("actions", {})
         if text:
             actions[event] = text
         else:
@@ -960,7 +1087,9 @@ class StreamDockWindow(Gtk.ApplicationWindow):
         except Exception as exc:  # noqa: BLE001
             self.toast(f"Reload failed: {exc}")
             return
+        self._current_page = 0
         self.brightness_adj.set_value(int(self.config.get("brightness", 80)))
+        self._refresh_nav()
         for k, w in self.key_widgets.items():
             cfg = self._key_cfg(k)
             w["label"].set_text(str(cfg.get("label", "")))
@@ -977,7 +1106,41 @@ class StreamDockWindow(Gtk.ApplicationWindow):
 
     def on_install_service(self, _btn: Gtk.Button) -> None:
         log.info("install service clicked")
-        ok, msg = install_service_via_pkexec()
+        detected = installmod.detect_connected_devices()
+        default = detected[0] if len(detected) == 1 else None
+        if detected:
+            detected_names = ", ".join(
+                installmod.DEVICE_RULES[key][0] for key in detected
+            )
+            if default:
+                default_name = installmod.DEVICE_RULES[default][0]
+                message = (
+                    f"Detected: {detected_names}. Default: {default_name}. "
+                    "Confirm or choose the other device."
+                )
+            else:
+                message = f"Detected: {detected_names}. Choose which udev rule to install."
+        else:
+            message = "No supported USB device detected. Choose which udev rule to install."
+
+        dialog = Gtk.Dialog(title="Select Stream Dock", transient_for=self, modal=True)
+        dialog.get_content_area().append(Gtk.Label(label=message, wrap=True))
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Mirabox", 1)
+        dialog.add_button("HOTSPOTEKUSB", 2)
+        if default == "mirabox":
+            dialog.set_default_response(1)
+        elif default == "hotspotekusb":
+            dialog.set_default_response(2)
+        dialog.connect("response", self._on_install_device_response)
+        dialog.present()
+
+    def _on_install_device_response(self, dialog: Gtk.Dialog, response: int) -> None:
+        dialog.destroy()
+        device = {1: "mirabox", 2: "hotspotekusb"}.get(response)
+        if device is None:
+            return
+        ok, msg = install_service_via_pkexec(device)
         self.toast("Service installed" if ok else f"Install failed: {msg}")
         self._refresh_status()
 

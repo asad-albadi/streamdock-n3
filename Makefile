@@ -2,7 +2,7 @@
 #
 # Typical packaging use:
 #   make build               # build a wheel under dist/
-#   make DESTDIR=$pkgdir install
+#   make DESTDIR=$pkgdir DEVICE=hotspotekusb install
 #
 # For local development install, prefer:
 #   pipx install --force .
@@ -16,6 +16,7 @@ DATAROOTDIR    ?= $(PREFIX)/share
 APPLICATIONS_DIR ?= $(DATAROOTDIR)/applications
 SYSTEMD_USER_DIR ?= $(PREFIX)/lib/systemd/user
 UDEV_RULES_DIR ?= /etc/udev/rules.d
+DEVICE         ?=
 
 INSTALL        ?= install
 DESTDIR        ?=
@@ -31,7 +32,7 @@ help:
 	@echo "Targets:"
 	@echo "  build         Build wheel + sdist under dist/"
 	@echo "  install       Install wheel and system data files (uses pip, udev rule, systemd unit, desktop)"
-	@echo "  install-data  Install only system data files (udev/service/desktop)"
+	@echo "  install-data  Install system data files (set DEVICE=mirabox|hotspotekusb to skip prompt)"
 	@echo "  uninstall     Remove system data files (does not touch Python install)"
 	@echo "  test          Run pytest"
 	@echo "  lint          Run ruff + mypy"
@@ -46,7 +47,47 @@ install-python:
 	$(PIP) install --no-deps --no-build-isolation --prefix=$(PREFIX) --root=$(DESTDIR)/ .
 
 install-data:
-	$(INSTALL) -Dm0644 $(PKG_DATA)/$(UDEV_RULE) $(DESTDIR)$(UDEV_RULES_DIR)/$(UDEV_RULE)
+	@set -eu; \
+	device="$(DEVICE)"; \
+	mirabox=0; hotspotekusb=0; default=""; \
+	for vendor_file in /sys/bus/usb/devices/*/idVendor; do \
+		[ -r "$$vendor_file" ] || continue; \
+		vendor=$$(cat "$$vendor_file" 2>/dev/null || true); \
+		case "$$vendor" in 6603) mirabox=1 ;; 5548) hotspotekusb=1 ;; esac; \
+	done; \
+	if [ -z "$$device" ]; then \
+		if [ "$$mirabox" -eq 1 ] && [ "$$hotspotekusb" -eq 0 ]; then default=1; \
+		elif [ "$$hotspotekusb" -eq 1 ] && [ "$$mirabox" -eq 0 ]; then default=2; fi; \
+		if [ "$$mirabox" -eq 1 ] || [ "$$hotspotekusb" -eq 1 ]; then \
+			printf 'Detected supported USB device(s):'; \
+			[ "$$mirabox" -eq 0 ] || printf ' Mirabox'; \
+			[ "$$hotspotekusb" -eq 0 ] || printf ' HOTSPOTEKUSB'; \
+			printf '\n'; \
+		else printf 'No supported Stream Dock detected over USB.\n'; fi; \
+		printf '  1) Mirabox%s\n' "$$([ "$$mirabox" -eq 1 ] && printf ' (detected)')"; \
+		printf '  2) HOTSPOTEKUSB%s\n' "$$([ "$$hotspotekusb" -eq 1 ] && printf ' (detected)')"; \
+		while :; do \
+			if [ "$$default" = 1 ]; then \
+				printf 'Select device [1/2] (Enter = Mirabox): '; \
+			elif [ "$$default" = 2 ]; then \
+				printf 'Select device [1/2] (Enter = HOTSPOTEKUSB): '; \
+			else printf 'Select device [1/2]: '; fi; \
+			IFS= read -r answer || { printf '\nNo device selected.\n' >&2; exit 1; }; \
+			[ -n "$$answer" ] || answer="$$default"; \
+			case "$$answer" in \
+				1|mirabox|m) device=mirabox; break ;; \
+				2|hotspotekusb|hotspot|h) device=hotspotekusb; break ;; \
+				*) printf 'Please enter 1 or 2.\n' ;; \
+			esac; \
+		done; \
+	fi; \
+	case "$$device" in \
+		mirabox) rule=99-streamdock-mirabox.rules ;; \
+		hotspotekusb) rule=99-streamdock-hotspotekusb.rules ;; \
+		*) printf 'Invalid DEVICE: %s (use mirabox or hotspotekusb).\n' "$$device" >&2; exit 2 ;; \
+	esac; \
+	printf 'Installing %s udev rule as %s/%s\n' "$$device" '$(DESTDIR)$(UDEV_RULES_DIR)' '$(UDEV_RULE)'; \
+	$(INSTALL) -Dm0644 "$(PKG_DATA)/$$rule" "$(DESTDIR)$(UDEV_RULES_DIR)/$(UDEV_RULE)"
 	sed 's|@BIN@|$(BINDIR)|g' $(PKG_DATA)/$(SERVICE_FILE) \
 		| $(INSTALL) -Dm0644 /dev/stdin $(DESTDIR)$(SYSTEMD_USER_DIR)/$(SERVICE_FILE)
 	sed 's|@BIN@|$(BINDIR)|g' $(PKG_DATA)/$(DESKTOP_FILE) \

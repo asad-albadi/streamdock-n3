@@ -37,8 +37,11 @@ except ImportError:  # pragma: no cover
     list_devices = None  # type: ignore[assignment]
 
 
-VID = "6603"
-PID = "1003"
+SUPPORTED_DEVICES = [
+    ("6603", "1003"),  # FHOOU/Mirabox N3 originale
+    ("5548", "1001"),  # HOTSPOTEKUSB N3 alternativo
+]
+VID, PID = SUPPORTED_DEVICES[0]  # default for compatibility with older versions of the daemon that only supported one device.
 
 
 def run_command(command: str, *, dry_run: bool) -> None:
@@ -74,8 +77,27 @@ def run_actions(actions: Any, *, dry_run: bool) -> None:
     raise ValueError(f"unsupported action: {actions!r}")
 
 
-def apply_icons(device, config: dict[str, Any]) -> None:
-    keys = configmod.normalize(config)["keys"]
+def get_pages(config: dict[str, Any]) -> list[dict[str, Any]]:
+    pages = config.get("pages")
+    if pages and isinstance(pages, list):
+        return pages
+    return [{"name": "Page 1", "keys": config.get("keys", {}), "actions": {}}]
+
+
+def get_current_keys(config: dict[str, Any], page_index: int) -> dict[str, Any]:
+    pages = get_pages(config)
+    return pages[page_index % len(pages)].get("keys", {})
+
+
+def get_current_actions(config: dict[str, Any], page_index: int) -> dict[str, Any]:
+    global_actions = config.get("actions", {})
+    pages = get_pages(config)
+    page_actions = pages[page_index % len(pages)].get("actions", {})
+    return {**global_actions, **page_actions}
+
+
+def apply_icons(device, config: dict[str, Any], page_index: int = 0) -> None:
+    keys = get_current_keys(config, page_index)
 
     icon_dir = paths.generated_key_dir()
     icon_dir.mkdir(parents=True, exist_ok=True)
@@ -108,14 +130,14 @@ def open_device():
 
 def hidraw_paths() -> list[Path]:
     out = []
-    token = f"v0000{VID.upper()}p0000{PID.upper()}"
+    tokens = {f"v0000{v.upper()}p0000{p.upper()}" for v, p in SUPPORTED_DEVICES}
     for hidraw in sorted(Path("/sys/class/hidraw").glob("hidraw*")):
         uevent = hidraw / "device" / "uevent"
         try:
             text = uevent.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if token in text:
+        if any(token in text for token in tokens):
             out.append(Path("/dev") / hidraw.name)
     return out
 
@@ -134,7 +156,7 @@ def is_streamdock_evdev(path: str) -> bool:
         info = dev.info
         name = (dev.name or "").lower()
         return (
-            (info.vendor == int(VID, 16) and info.product == int(PID, 16))
+            any(info.vendor == int(v, 16) and info.product == int(p, 16) for v, p in SUPPORTED_DEVICES)
             or "hotspotekusb" in name
             or "streamdock" in name
         )
@@ -211,7 +233,7 @@ def wants_evdev_grab(actions: dict[str, Any], config: dict[str, Any]) -> bool:
 
 def evdev_worker(
     stop: threading.Event,
-    actions: dict[str, Any],
+    actions_ref: list[dict[str, Any]],
     dry_run: bool,
     grab: bool = False,
 ) -> None:
@@ -261,7 +283,7 @@ def evdev_worker(
                 break
             for dev in ready:
                 try:
-                    _dispatch_evdev(dev, actions, dry_run)
+                    _dispatch_evdev(dev, actions_ref[0], dry_run)
                 except BlockingIOError:
                     pass
                 except OSError as exc:
@@ -295,7 +317,11 @@ def main(argv: list[str] | None = None) -> int:
     paths.ensure_runtime_dirs()
     config_path = args.config or configmod.ensure_config()
     config = configmod.normalize(configmod.load(config_path))
-    actions = configmod.action_map(config)
+
+    current_page = 0
+    pages = get_pages(config)
+    actions = get_current_actions(config, current_page)
+    actions_ref = [actions]
 
     brightness = args.brightness
     if brightness is None:
@@ -315,11 +341,34 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
+    def switch_page(index: int) -> None:
+        nonlocal current_page
+        current_page = index % len(pages)
+        actions_ref[0] = get_current_actions(config, current_page)
+        print(f"page: {current_page} ({pages[current_page].get('name', current_page)})", flush=True)
+        apply_icons(device, config, current_page)
+
     def on_input(_dev, event):
         key = event_key(event)
         print(f"{describe_event(event)} [{key}]", flush=True)
-        if key:
-            run_actions(actions.get(key), dry_run=args.dry_run)
+        if not key:
+            return
+        action = actions_ref[0].get(key)
+        if isinstance(action, str) and action.startswith("__page:"):
+            cmd = action[7:].rstrip("_")
+            if cmd == "next":
+                switch_page(current_page + 1)
+            elif cmd == "prev":
+                switch_page(current_page - 1)
+            elif cmd == "first":
+                switch_page(0)
+            elif cmd == "last":
+                switch_page(len(pages) - 1)
+            elif cmd.isdigit():
+                switch_page(int(cmd))
+
+        else:
+            run_actions(action, dry_run=args.dry_run)
 
     exit_code = 0
     try:
@@ -334,12 +383,12 @@ def main(argv: list[str] | None = None) -> int:
             device.init()
         device.set_brightness(max(0, min(100, brightness)))
         if not args.no_icons:
-            apply_icons(device, config)
+            apply_icons(device, config, current_page)
         device.set_key_callback(on_input)
-        grab = wants_evdev_grab(actions, config) and not args.no_grab
+        grab = wants_evdev_grab(actions_ref[0], config) and not args.no_grab
         evdev_thread = threading.Thread(
             target=evdev_worker,
-            args=(stop_event, actions, args.dry_run, grab),
+            args=(stop_event, actions_ref, args.dry_run, grab),
             daemon=True,
         )
         evdev_thread.start()

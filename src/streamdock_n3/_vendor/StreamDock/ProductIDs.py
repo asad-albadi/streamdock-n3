@@ -31,6 +31,7 @@ class USBVendorIDs:
     USB_VID_M3 = 0x5548
     USB_VID_K1_PRO = 0x6603
     USB_VID_K1_PROEU = 0x6603
+    USB_VID_N3_ALT = 0x5548
 
 
 class USBProductIDs:
@@ -68,7 +69,7 @@ class USBProductIDs:
     USB_PID_STREAMDOCK_M3 = 0x1020
     USB_PID_K1_PRO = 0x1015
     USB_PID_K1_PROEU = 0x1019
-
+    USB_PID_STREAMDOCK_N3_ALT = 0x1001
 
 from .Devices.StreamDock293 import StreamDock293
 from .Devices.StreamDock293V3 import StreamDock293V3
@@ -125,5 +126,6 @@ g_products = [
     # K1 Pro
     (USBVendorIDs.USB_VID_K1_PRO, USBProductIDs.USB_PID_K1_PRO, K1Pro),
     (USBVendorIDs.USB_VID_K1_PROEU, USBProductIDs.USB_PID_K1_PROEU, K1Pro),
+    (USBVendorIDs.USB_VID_N3_ALT, USBProductIDs.USB_PID_STREAMDOCK_N3_ALT, StreamDockN3),
 
 ]

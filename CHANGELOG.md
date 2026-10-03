@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 — 2026-09-29
+
+### Added
+
+- Multi-page key layouts with GUI controls to add, remove, rename, and navigate
+  pages. The `migrate_to_pages.py` utility converts existing flat configs.
+- Support for the HOTSPOTEKUSB N3 (`5548:1001`) alongside Mirabox devices.
+- Device-aware udev installation: the CLI, GUI, and distro Makefile detect
+  connected supported devices, ask for confirmation, and install the selected
+  rule as `99-streamdock.rules`. `--device` and `DEVICE` allow explicit,
+  non-interactive selection.
+
 ## 0.4.0 — 2026-08-22
 
 ### Changed

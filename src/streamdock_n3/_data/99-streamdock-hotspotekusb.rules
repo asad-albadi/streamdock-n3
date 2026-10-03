@@ -1,0 +1,5 @@
+# HOTSPOTEKUSB N3 alternative (VID 5548)
+SUBSYSTEM=="usb", ATTR{idVendor}=="5548", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="5548", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="5548", MODE="0666", TAG+="uaccess"
+
